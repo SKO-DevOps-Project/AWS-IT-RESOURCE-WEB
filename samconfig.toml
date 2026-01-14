@@ -1,0 +1,9 @@
+# SAM CLI configuration file
+
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "aws-role-request-system"
+region = "ap-northeast-2"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"

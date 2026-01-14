@@ -1,0 +1,286 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AWS Role Request System - Mattermost based IAM Role request and approval
+
+Parameters:
+  MattermostUrl:
+    Type: String
+    Default: "https://mattermost.skons.net"
+    Description: Mattermost server URL
+  
+  MattermostBotToken:
+    Type: String
+    NoEcho: true
+    Description: Mattermost bot token for API calls
+  
+  RequestChannelWebhook:
+    Type: String
+    Default: "https://mattermost.skons.net/hooks/b49cagrr4f8qjbjqa57x664hme"
+    Description: Incoming webhook URL for request channel (global_aws_request)
+  
+  ApprovalChannelWebhook:
+    Type: String
+    Description: Incoming webhook URL for approval channel (global_aws_master)
+  
+  ApprovalChannelId:
+    Type: String
+    Description: Mattermost channel ID for global_aws_master
+  
+  AdminUserIds:
+    Type: String
+    Description: Comma-separated list of admin Mattermost user IDs
+  
+  CompanyIpRange:
+    Type: String
+    Default: "0.0.0.0/0"
+    Description: Company internal IP range for Trust Policy
+  
+  CallbackBaseUrl:
+    Type: String
+    Default: ""
+    Description: Base URL for interactive callbacks (leave empty for first deploy, update after)
+
+Globals:
+  Function:
+    Runtime: python3.11
+    Timeout: 30
+    MemorySize: 256
+    Environment:
+      Variables:
+        MATTERMOST_URL: !Ref MattermostUrl
+        MATTERMOST_BOT_TOKEN: !Ref MattermostBotToken
+        APPROVAL_CHANNEL_ID: !Ref ApprovalChannelId
+        ADMIN_USER_IDS: !Ref AdminUserIds
+        COMPANY_IP_RANGE: !Ref CompanyIpRange
+        DYNAMODB_TABLE: !Ref RoleRequestsTable
+    Tags:
+      Env: infra
+      Service: infra
+      Owner: N1104365
+
+Resources:
+  # DynamoDB Table
+  RoleRequestsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: RoleRequests
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: request_id
+          AttributeType: S
+        - AttributeName: requester_mattermost_id
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+      KeySchema:
+        - AttributeName: request_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: RequesterIndex
+          KeySchema:
+            - AttributeName: requester_mattermost_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: StatusIndex
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      Tags:
+        - Key: Env
+          Value: infra
+        - Key: Service
+          Value: infra
+        - Key: Owner
+          Value: N1104365
+
+  # API Gateway
+  RoleRequestApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: prod
+      Tags:
+        Env: infra
+        Service: infra
+        Owner: N1104365
+
+  # Request Handler Lambda
+  RequestHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: role-request-handler
+      CodeUri: src/
+      Handler: handlers.request_handler.lambda_handler
+      Timeout: 60
+      Environment:
+        Variables:
+          SCHEDULER_ROLE_ARN: !GetAtt SchedulerExecutionRole.Arn
+          ROLE_MANAGER_LAMBDA_ARN: !GetAtt RoleManagerFunction.Arn
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RoleRequestsTable
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - iam:GetUser
+                - iam:CreateRole
+                - iam:DeleteRole
+                - iam:CreatePolicy
+                - iam:DeletePolicy
+                - iam:AttachRolePolicy
+                - iam:DetachRolePolicy
+                - iam:TagRole
+                - iam:GetRole
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - scheduler:CreateSchedule
+                - scheduler:DeleteSchedule
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource: !GetAtt SchedulerExecutionRole.Arn
+      Events:
+        SlashCommand:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /slash
+            Method: POST
+        DialogSubmission:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /dialog
+            Method: POST
+      Tags:
+        Env: infra
+        Service: infra
+        Owner: N1104365
+
+  # Approval Handler Lambda
+  ApprovalHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: role-approval-handler
+      CodeUri: src/
+      Handler: handlers.approval_handler.lambda_handler
+      Timeout: 60
+      Environment:
+        Variables:
+          ROLE_MANAGER_LAMBDA_ARN: !GetAtt RoleManagerFunction.Arn
+          SCHEDULER_ROLE_ARN: !GetAtt SchedulerExecutionRole.Arn
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RoleRequestsTable
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - scheduler:CreateSchedule
+                - scheduler:DeleteSchedule
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource: !GetAtt SchedulerExecutionRole.Arn
+            - Effect: Allow
+              Action:
+                - iam:CreateRole
+                - iam:DeleteRole
+                - iam:CreatePolicy
+                - iam:DeletePolicy
+                - iam:AttachRolePolicy
+                - iam:DetachRolePolicy
+                - iam:TagRole
+                - iam:GetRole
+              Resource: "*"
+      Events:
+        InteractiveAction:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /interactive
+            Method: POST
+      Tags:
+        Env: infra
+        Service: infra
+        Owner: N1104365
+
+  # Role Manager Lambda (triggered by EventBridge)
+  RoleManagerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: role-manager
+      CodeUri: src/
+      Handler: handlers.role_manager_handler.lambda_handler
+      Timeout: 60
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RoleRequestsTable
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - iam:CreateRole
+                - iam:DeleteRole
+                - iam:CreatePolicy
+                - iam:DeletePolicy
+                - iam:AttachRolePolicy
+                - iam:DetachRolePolicy
+                - iam:TagRole
+                - iam:GetRole
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - scheduler:DeleteSchedule
+              Resource: "*"
+      Tags:
+        Env: infra
+        Service: infra
+        Owner: N1104365
+
+  # EventBridge Scheduler Role
+  SchedulerExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: role-request-scheduler-execution
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt RoleManagerFunction.Arn
+      Tags:
+        - Key: Env
+          Value: infra
+        - Key: Service
+          Value: infra
+        - Key: Owner
+          Value: N1104365
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${RoleRequestApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+  
+  SlashCommandUrl:
+    Description: URL for Mattermost slash command configuration
+    Value: !Sub "https://${RoleRequestApi}.execute-api.${AWS::Region}.amazonaws.com/prod/slash"
+  
+  InteractiveUrl:
+    Description: URL for Mattermost interactive message callbacks
+    Value: !Sub "https://${RoleRequestApi}.execute-api.${AWS::Region}.amazonaws.com/prod/interactive"
