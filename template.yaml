@@ -18,6 +18,10 @@ Parameters:
     Default: "https://mattermost.skons.net/hooks/b49cagrr4f8qjbjqa57x664hme"
     Description: Incoming webhook URL for request channel (global_aws_request)
   
+  RequestChannelId:
+    Type: String
+    Description: Mattermost channel ID for global_aws_request
+  
   ApprovalChannelWebhook:
     Type: String
     Description: Incoming webhook URL for approval channel (global_aws_master)
@@ -50,6 +54,7 @@ Globals:
         MATTERMOST_URL: !Ref MattermostUrl
         MATTERMOST_BOT_TOKEN: !Ref MattermostBotToken
         APPROVAL_CHANNEL_ID: !Ref ApprovalChannelId
+        REQUEST_CHANNEL_ID: !Ref RequestChannelId
         ADMIN_USER_IDS: !Ref AdminUserIds
         COMPANY_IP_RANGE: !Ref CompanyIpRange
         DYNAMODB_TABLE: !Ref RoleRequestsTable

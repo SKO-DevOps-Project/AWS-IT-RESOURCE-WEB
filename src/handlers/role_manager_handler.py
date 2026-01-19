@@ -107,17 +107,52 @@ def handle_create_role(request, repository, role_manager, mattermost_client, sch
         target_services_str = request.target_services[0] if request.target_services else "all"
         target_display = target_service_names.get(target_services_str, target_services_str)
         
+        # Get requester username
+        requester_username = request.requester_name
+        if not requester_username:
+            try:
+                user_info = mattermost_client.get_user_by_id(request.requester_mattermost_id)
+                if user_info:
+                    requester_username = user_info.get("username", "")
+            except Exception as e:
+                print(f"[handle_create_role] Failed to get username: {e}")
+                requester_username = ""
+        
         mattermost_client.send_dm(
             user_id=request.requester_mattermost_id,
             message=f"✅ AWS Role이 생성되었습니다!\n\n"
+                   f"**요청자 Mattermost ID:** {requester_username}\n"
                    f"**요청 ID:** {request.request_id}\n"
                    f"**Role ARN:** {role_info['role_arn']}\n\n"
-                   f"**Switch Role 방법:**\n"
+                   f"---\n"
+                   f"## 🖥️ Console에서 사용하기 (Switch Role)\n"
                    f"1. AWS Console 우측 상단 → Switch Role\n"
                    f"2. Account: `680877507363`\n"
                    f"3. Role: `{role_name}`\n\n"
-                   f"**또는 CLI:**\n"
-                   f"```\naws sts assume-role --role-arn {role_info['role_arn']} --role-session-name {request.iam_user_name}-session\n```\n\n"
+                   f"---\n"
+                   f"## 💻 CLI에서 사용하기\n\n"
+                   f"**방법 1: 환경변수 설정 (권장)**\n"
+                   f"```bash\n"
+                   f"# 1. assume-role 실행\n"
+                   f"CREDS=$(aws sts assume-role --role-arn {role_info['role_arn']} --role-session-name {request.iam_user_name}-session --query 'Credentials' --output json)\n\n"
+                   f"# 2. 환경변수 설정\n"
+                   f"export AWS_ACCESS_KEY_ID=$(echo $CREDS | jq -r '.AccessKeyId')\n"
+                   f"export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | jq -r '.SecretAccessKey')\n"
+                   f"export AWS_SESSION_TOKEN=$(echo $CREDS | jq -r '.SessionToken')\n\n"
+                   f"# 3. 확인\n"
+                   f"aws sts get-caller-identity\n"
+                   f"```\n\n"
+                   f"**방법 2: AWS Profile 설정**\n"
+                   f"```bash\n"
+                   f"# ~/.aws/credentials 에 추가\n"
+                   f"[temp-role]\n"
+                   f"aws_access_key_id = <AccessKeyId 값>\n"
+                   f"aws_secret_access_key = <SecretAccessKey 값>\n"
+                   f"aws_session_token = <SessionToken 값>\n\n"
+                   f"# 사용 시\n"
+                   f"aws s3 ls --profile temp-role\n"
+                   f"```\n\n"
+                   f"---\n"
                    f"**시작 시간:** {request.start_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
                    f"**종료 시간:** {request.end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
                    f"**Env:** {request.env} | **Service:** {request.service}\n"

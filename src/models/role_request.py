@@ -43,7 +43,8 @@ VALID_SERVICES = [
     "aihub", "safety", "infra", "biz_drive", "alarm",
     "unit-mgnt", "software-updater", "sms-sender", "ai-nams",
     "fleet-mgnt", "bp-eval", "form-system", "sko-sso-auth",
-    "sko-sftp", "asset-mgmt", "eb", "ocean", "mobile-app"
+    "sko-sftp", "asset-mgmt", "eb", "ocean", "mobile-app",
+    "security365"
 ]
 
 # Valid permission types

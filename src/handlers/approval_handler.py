@@ -171,17 +171,46 @@ class ApprovalHandler:
                             target_services_str = request.target_services[0] if request.target_services else "all"
                             target_display = target_service_names.get(target_services_str, target_services_str)
                             
+                            # Get requester username for DM
+                            requester_username = request.requester_name
+                            if not requester_username:
+                                requester_username = self._get_username(request.requester_mattermost_id)
+                            
                             self.mattermost_client.send_dm(
                                 user_id=request.requester_mattermost_id,
                                 message=f"✅ AWS Role이 생성되었습니다!\n\n"
+                                       f"**요청자 Mattermost ID:** {requester_username}\n"
                                        f"**요청 ID:** {request_id}\n"
                                        f"**Role ARN:** {role_info['role_arn']}\n\n"
-                                       f"**Switch Role 방법:**\n"
+                                       f"---\n"
+                                       f"## 🖥️ Console에서 사용하기 (Switch Role)\n"
                                        f"1. AWS Console 우측 상단 → Switch Role\n"
                                        f"2. Account: `680877507363`\n"
                                        f"3. Role: `{role_name}`\n\n"
-                                       f"**또는 CLI:**\n"
-                                       f"```\naws sts assume-role --role-arn {role_info['role_arn']} --role-session-name {request.iam_user_name}-session\n```\n\n"
+                                       f"---\n"
+                                       f"## 💻 CLI에서 사용하기\n\n"
+                                       f"**방법 1: 환경변수 설정 (권장)**\n"
+                                       f"```bash\n"
+                                       f"# 1. assume-role 실행\n"
+                                       f"CREDS=$(aws sts assume-role --role-arn {role_info['role_arn']} --role-session-name {request.iam_user_name}-session --query 'Credentials' --output json)\n\n"
+                                       f"# 2. 환경변수 설정\n"
+                                       f"export AWS_ACCESS_KEY_ID=$(echo $CREDS | jq -r '.AccessKeyId')\n"
+                                       f"export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | jq -r '.SecretAccessKey')\n"
+                                       f"export AWS_SESSION_TOKEN=$(echo $CREDS | jq -r '.SessionToken')\n\n"
+                                       f"# 3. 확인\n"
+                                       f"aws sts get-caller-identity\n"
+                                       f"```\n\n"
+                                       f"**방법 2: AWS Profile 설정**\n"
+                                       f"```bash\n"
+                                       f"# ~/.aws/credentials 에 추가\n"
+                                       f"[temp-role]\n"
+                                       f"aws_access_key_id = <AccessKeyId 값>\n"
+                                       f"aws_secret_access_key = <SecretAccessKey 값>\n"
+                                       f"aws_session_token = <SessionToken 값>\n\n"
+                                       f"# 사용 시\n"
+                                       f"aws s3 ls --profile temp-role\n"
+                                       f"```\n\n"
+                                       f"---\n"
                                        f"**시작 시간:** {start_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
                                        f"**종료 시간:** {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
                                        f"**Env:** {request.env} | **Service:** {request.service}\n"
@@ -216,9 +245,15 @@ class ApprovalHandler:
             # Send DM to requester about scheduled approval
             if self.mattermost_client:
                 try:
+                    # Get requester username for DM
+                    requester_username = request.requester_name
+                    if not requester_username:
+                        requester_username = self._get_username(request.requester_mattermost_id)
+                    
                     self.mattermost_client.send_dm(
                         user_id=request.requester_mattermost_id,
                         message=f"✅ 권한 요청이 승인되었습니다.\n\n"
+                               f"**요청자 Mattermost ID:** {requester_username}\n"
                                f"**요청 ID:** {request_id}\n"
                                f"**시작 시간:** {start_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
                                f"**종료 시간:** {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n\n"
@@ -227,19 +262,30 @@ class ApprovalHandler:
                 except Exception as e:
                     print(f"[handle_approve] Failed to send DM: {e}")
         
-        # Update message with revoke button (ignore errors)
-        if self.mattermost_client and request.post_id:
+        # Send approval status message to approval channel (new message instead of update due to 403)
+        if self.mattermost_client:
             try:
                 from services.mattermost_client import Attachment, Action
                 
                 # Get callback URL from environment or construct it
                 callback_url = os.environ.get("CALLBACK_URL", "")
+                approval_channel_id = os.environ.get("APPROVAL_CHANNEL_ID", "")
+                
+                # Get requester username
+                requester_username = request.requester_name
+                if not requester_username:
+                    requester_username = self._get_username(request.requester_mattermost_id)
                 
                 updated_attachment = Attachment(
-                    fallback=f"승인됨: {request.requester_name}",
+                    fallback=f"승인됨: {requester_username}",
                     color="#00FF00",
                     title="✅ 승인됨",
-                    text=f"승인자: {approver_username}\n요청 ID: {request_id}",
+                    text=f"**요청자:** {requester_username}\n"
+                         f"**IAM User:** {request.iam_user_name}\n"
+                         f"**Env:** {request.env} | **Service:** {request.service}\n"
+                         f"**시간:** {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n\n"
+                         f"**승인자:** {approver_username}\n"
+                         f"**요청 ID:** {request_id}",
                     actions=[
                         Action(
                             id="revoke",
@@ -255,13 +301,32 @@ class ApprovalHandler:
                         ),
                     ],
                 )
-                self.mattermost_client.update_message(
-                    post_id=request.post_id,
-                    message=f"📋 권한 요청 - 승인됨",
-                    attachments=[updated_attachment],
-                )
+                
+                # Try to update first, if fails send new message
+                if request.post_id:
+                    try:
+                        self.mattermost_client.update_message(
+                            post_id=request.post_id,
+                            message=f"📋 권한 요청 - 승인됨",
+                            attachments=[updated_attachment],
+                        )
+                    except Exception as update_error:
+                        print(f"[handle_approve] Failed to update message (403?): {update_error}")
+                        # Send new message to approval channel instead
+                        if approval_channel_id:
+                            self.mattermost_client.send_to_channel(
+                                channel_id=approval_channel_id,
+                                message=f"📋 권한 요청 - 승인됨",
+                                attachments=[updated_attachment],
+                            )
+                elif approval_channel_id:
+                    self.mattermost_client.send_to_channel(
+                        channel_id=approval_channel_id,
+                        message=f"📋 권한 요청 - 승인됨",
+                        attachments=[updated_attachment],
+                    )
             except Exception as e:
-                print(f"[handle_approve] Failed to update message: {e}")
+                print(f"[handle_approve] Failed to send approval message: {e}")
         
         print(f"[handle_approve] Approval completed successfully")
         return {"update": {"message": "✅ 승인되었습니다"}}
@@ -298,6 +363,11 @@ class ApprovalHandler:
         # Get rejecter username
         rejecter_username = self._get_username(approver_id)
         
+        # Get requester username
+        requester_username = request.requester_name
+        if not requester_username:
+            requester_username = self._get_username(request.requester_mattermost_id)
+        
         # Update status
         self.repository.update_status(
             request_id,
@@ -306,24 +376,48 @@ class ApprovalHandler:
             rejection_reason=rejection_reason,
         )
         
-        # Update message (ignore errors - bot may not have permission to edit)
-        if self.mattermost_client and request.post_id:
+        # Send rejection status message to approval channel (new message instead of update due to 403)
+        if self.mattermost_client:
             try:
                 from services.mattermost_client import Attachment
+                approval_channel_id = os.environ.get("APPROVAL_CHANNEL_ID", "")
+                
                 updated_attachment = Attachment(
-                    fallback=f"반려됨: {request.requester_name}",
+                    fallback=f"반려됨: {requester_username}",
                     color="#FF0000",
                     title="❌ 반려됨",
-                    text=f"반려자: {rejecter_username}\n사유: {rejection_reason}",
+                    text=f"**요청자:** {requester_username}\n"
+                         f"**IAM User:** {request.iam_user_name}\n"
+                         f"**Env:** {request.env} | **Service:** {request.service}\n\n"
+                         f"**반려자:** {rejecter_username}\n"
+                         f"**사유:** {rejection_reason}",
                 )
-                self.mattermost_client.update_message(
-                    post_id=request.post_id,
-                    message=f"📋 권한 요청 - 반려됨",
-                    attachments=[updated_attachment],
-                )
+                
+                # Try to update first, if fails send new message
+                if request.post_id:
+                    try:
+                        self.mattermost_client.update_message(
+                            post_id=request.post_id,
+                            message=f"📋 권한 요청 - 반려됨",
+                            attachments=[updated_attachment],
+                        )
+                    except Exception as update_error:
+                        print(f"[handle_reject] Failed to update message (403?): {update_error}")
+                        # Send new message to approval channel instead
+                        if approval_channel_id:
+                            self.mattermost_client.send_to_channel(
+                                channel_id=approval_channel_id,
+                                message=f"📋 권한 요청 - 반려됨",
+                                attachments=[updated_attachment],
+                            )
+                elif approval_channel_id:
+                    self.mattermost_client.send_to_channel(
+                        channel_id=approval_channel_id,
+                        message=f"📋 권한 요청 - 반려됨",
+                        attachments=[updated_attachment],
+                    )
             except Exception as e:
-                print(f"Failed to update message: {e}")
-                # Continue anyway - rejection still processed
+                print(f"[handle_reject] Failed to send rejection message: {e}")
         
         # Send DM to requester
         if self.mattermost_client:
@@ -392,23 +486,53 @@ class ApprovalHandler:
                 approver_id=revoker_id,
             )
             
-            # Update message
-            if self.mattermost_client and request.post_id:
+            # Send revoke status message to approval channel (new message instead of update due to 403)
+            if self.mattermost_client:
                 try:
                     from services.mattermost_client import Attachment
+                    approval_channel_id = os.environ.get("APPROVAL_CHANNEL_ID", "")
+                    
+                    # Get requester username
+                    requester_username = request.requester_name
+                    if not requester_username:
+                        requester_username = self._get_username(request.requester_mattermost_id)
+                    
                     updated_attachment = Attachment(
-                        fallback=f"권한 회수됨: {request.requester_name}",
+                        fallback=f"권한 회수됨: {requester_username}",
                         color="#FF0000",
                         title="🔄 권한이 회수되었습니다",
-                        text=f"회수자: {revoker_username}\n요청 ID: {request_id}",
+                        text=f"**요청자:** {requester_username}\n"
+                             f"**IAM User:** {request.iam_user_name}\n"
+                             f"**Env:** {request.env} | **Service:** {request.service}\n\n"
+                             f"**회수자:** {revoker_username}\n"
+                             f"**요청 ID:** {request_id}",
                     )
-                    self.mattermost_client.update_message(
-                        post_id=request.post_id,
-                        message=f"📋 권한 요청 - 권한 회수됨",
-                        attachments=[updated_attachment],
-                    )
+                    
+                    # Try to update first, if fails send new message
+                    if request.post_id:
+                        try:
+                            self.mattermost_client.update_message(
+                                post_id=request.post_id,
+                                message=f"📋 권한 요청 - 권한 회수됨",
+                                attachments=[updated_attachment],
+                            )
+                        except Exception as update_error:
+                            print(f"[handle_revoke] Failed to update message (403?): {update_error}")
+                            # Send new message to approval channel instead
+                            if approval_channel_id:
+                                self.mattermost_client.send_to_channel(
+                                    channel_id=approval_channel_id,
+                                    message=f"📋 권한 요청 - 권한 회수됨",
+                                    attachments=[updated_attachment],
+                                )
+                    elif approval_channel_id:
+                        self.mattermost_client.send_to_channel(
+                            channel_id=approval_channel_id,
+                            message=f"📋 권한 요청 - 권한 회수됨",
+                            attachments=[updated_attachment],
+                        )
                 except Exception as e:
-                    print(f"[handle_revoke] Failed to update message: {e}")
+                    print(f"[handle_revoke] Failed to send revoke message: {e}")
             
             # Send DM to requester
             if self.mattermost_client:

@@ -26,6 +26,7 @@ from services.mattermost_client import (
 # Admin user IDs (loaded from environment)
 ADMIN_USER_IDS = os.environ.get("ADMIN_USER_IDS", "").split(",")
 APPROVAL_CHANNEL_ID = os.environ.get("APPROVAL_CHANNEL_ID", "")
+REQUEST_CHANNEL_ID = os.environ.get("REQUEST_CHANNEL_ID", "")
 
 # Korea Standard Time (UTC+9)
 KST = timezone(timedelta(hours=9))
@@ -419,13 +420,23 @@ class RequestHandler:
         # For normal request, forward to approval channel
         self._forward_to_approval_channel(request)
         
-        # Send confirmation DM
+        # Send confirmation DM - ensure user_name is not empty
+        dm_user_name = user_name
+        if not dm_user_name and self.mattermost_client:
+            try:
+                user_info = self.mattermost_client.get_user_by_id(user_id)
+                if user_info:
+                    dm_user_name = user_info.get("username", user_id)
+            except Exception as e:
+                print(f"Failed to get username for DM: {e}")
+                dm_user_name = user_id
+        
         if self.mattermost_client:
             try:
                 self.mattermost_client.send_dm(
                     user_id=user_id,
                     message=f"✅ 권한 요청이 제출되었습니다.\n\n"
-                           f"**요청자 Mattermost ID:** {user_name}\n"
+                           f"**요청자 Mattermost ID:** {dm_user_name}\n"
                            f"**요청 ID:** {request.request_id}\n"
                            f"**IAM User:** {iam_user_name}\n"
                            f"**Env:** {env}\n"
@@ -481,12 +492,35 @@ class RequestHandler:
                     message=f"✅ AWS Role이 즉시 생성되었습니다! (관리자 즉시 부여)\n\n"
                            f"**요청 ID:** {request.request_id}\n"
                            f"**Role ARN:** {request.role_arn}\n\n"
-                           f"**Switch Role 방법:**\n"
+                           f"---\n"
+                           f"## 🖥️ Console에서 사용하기 (Switch Role)\n"
                            f"1. AWS Console 우측 상단 → Switch Role\n"
                            f"2. Account: `680877507363`\n"
                            f"3. Role: `{role_name}`\n\n"
-                           f"**또는 CLI:**\n"
-                           f"```\naws sts assume-role --role-arn {request.role_arn} --role-session-name {request.iam_user_name}-session\n```\n\n"
+                           f"---\n"
+                           f"## 💻 CLI에서 사용하기\n\n"
+                           f"**방법 1: 환경변수 설정 (권장)**\n"
+                           f"```bash\n"
+                           f"# 1. assume-role 실행\n"
+                           f"CREDS=$(aws sts assume-role --role-arn {request.role_arn} --role-session-name {request.iam_user_name}-session --query 'Credentials' --output json)\n\n"
+                           f"# 2. 환경변수 설정\n"
+                           f"export AWS_ACCESS_KEY_ID=$(echo $CREDS | jq -r '.AccessKeyId')\n"
+                           f"export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | jq -r '.SecretAccessKey')\n"
+                           f"export AWS_SESSION_TOKEN=$(echo $CREDS | jq -r '.SessionToken')\n\n"
+                           f"# 3. 확인\n"
+                           f"aws sts get-caller-identity\n"
+                           f"```\n\n"
+                           f"**방법 2: AWS Profile 설정**\n"
+                           f"```bash\n"
+                           f"# ~/.aws/credentials 에 추가\n"
+                           f"[temp-role]\n"
+                           f"aws_access_key_id = <AccessKeyId 값>\n"
+                           f"aws_secret_access_key = <SecretAccessKey 값>\n"
+                           f"aws_session_token = <SessionToken 값>\n\n"
+                           f"# 사용 시\n"
+                           f"aws s3 ls --profile temp-role\n"
+                           f"```\n\n"
+                           f"---\n"
                            f"**시작 시간:** {request.start_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
                            f"**종료 시간:** {request.end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
                            f"**Env:** {request.env} | **Service:** {request.service}\n"
@@ -706,9 +740,23 @@ class RequestHandler:
         # Get target_services as string for display
         target_services_str = request.target_services[0] if request.target_services else "all"
         
+        # Get requester username - ensure it's not empty
+        requester_name = request.requester_name
+        if not requester_name and request.requester_mattermost_id and self.mattermost_client:
+            try:
+                user_info = self.mattermost_client.get_user_by_id(request.requester_mattermost_id)
+                if user_info:
+                    requester_name = user_info.get("username", request.requester_mattermost_id)
+            except Exception as e:
+                print(f"[_forward_to_approval_channel] Failed to get username: {e}")
+                requester_name = request.requester_mattermost_id
+        
+        if not requester_name:
+            requester_name = request.requester_mattermost_id or "Unknown"
+        
         attachment = create_approval_message(
             request_id=request.request_id,
-            requester_name=request.requester_name,
+            requester_name=requester_name,
             iam_user_name=request.iam_user_name,
             env=request.env,
             service=request.service,
@@ -730,6 +778,22 @@ class RequestHandler:
         if self.repository and "id" in response:
             request.post_id = response["id"]
             self.repository.update_post_id(request.request_id, response["id"])
+        
+        # Send request log to request channel (global_aws_request) for history tracking
+        if REQUEST_CHANNEL_ID:
+            try:
+                now_kst = datetime.now(KST)
+                self.mattermost_client.send_to_channel(
+                    channel_id=REQUEST_CHANNEL_ID,
+                    message=f"📝 **{requester_name}** 유저가 권한을 요청했습니다.\n"
+                           f"- 요청 ID: `{request.request_id}`\n"
+                           f"- IAM User: `{request.iam_user_name}`\n"
+                           f"- Env: `{request.env}` | Service: `{request.service}`\n"
+                           f"- 시간: {request.start_time.strftime('%Y-%m-%d %H:%M')} ~ {request.end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
+                           f"- 요청 시각: {now_kst.strftime('%Y-%m-%d %H:%M:%S')} (KST)",
+                )
+            except Exception as e:
+                print(f"[_forward_to_approval_channel] Failed to send to request channel: {e}")
     
     def _response(self, text: str) -> Dict[str, Any]:
         """Create a response"""
