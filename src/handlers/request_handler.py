@@ -15,6 +15,7 @@ from models import (
     ValidationResult,
     VALID_ENVS,
     VALID_SERVICES,
+    SERVICE_DISPLAY_NAMES,
 )
 from services.request_validator import RequestValidator
 from services.mattermost_client import (
@@ -87,7 +88,10 @@ def create_request_dialog(is_master: bool = False, user_options: list = None) ->
             "name": "service",
             "type": "select",
             "options": [
-                {"text": svc, "value": svc} for svc in VALID_SERVICES
+                {
+                    "text": f"{svc} ({SERVICE_DISPLAY_NAMES.get(svc, svc)})" if SERVICE_DISPLAY_NAMES.get(svc) else svc,
+                    "value": svc
+                } for svc in VALID_SERVICES
             ],
             "help_text": "서비스를 선택하세요",
         },
@@ -110,11 +114,12 @@ def create_request_dialog(is_master: bool = False, user_options: list = None) ->
             "type": "select",
             "default": "all",
             "options": [
-                {"text": "전체 (EC2, RDS, Lambda, S3)", "value": "all"},
-                {"text": "EC2만", "value": "ec2"},
+                {"text": "전체 (EC2+SSM, RDS, Lambda, S3, EB)", "value": "all"},
+                {"text": "EC2만 (SSM 접속 포함)", "value": "ec2"},
                 {"text": "RDS만", "value": "rds"},
                 {"text": "Lambda만", "value": "lambda"},
                 {"text": "S3만", "value": "s3"},
+                {"text": "ElasticBeanstalk만", "value": "elasticbeanstalk"},
             ],
             "help_text": "권한이 필요한 AWS 서비스를 선택하세요",
         },
@@ -386,6 +391,7 @@ class RequestHandler:
             "rds": "RDS",
             "lambda": "Lambda",
             "s3": "S3",
+            "elasticbeanstalk": "ElasticBeanstalk",
         }
         
         # Create request - use target_user_id for master requests

@@ -32,20 +32,41 @@ class TargetService(Enum):
     RDS = "rds"
     LAMBDA = "lambda"
     S3 = "s3"
+    ELASTICBEANSTALK = "elasticbeanstalk"
     ALL = "all"
 
 
 # Valid environment values
 VALID_ENVS = ["prod", "test", "infra", "staging", "dev"]
 
-# Valid service values (business services)
+# Valid service values (business services) - used as AWS tags
 VALID_SERVICES = [
     "aihub", "safety", "infra", "biz_drive", "alarm",
     "unit-mgnt", "software-updater", "sms-sender", "ai-nams",
     "fleet-mgnt", "bp-eval", "form-system", "sko-sso-auth",
-    "sko-sftp", "asset-mgmt", "eb", "ocean", "mobile-app",
-    "security365"
+    "sko-sftp", "asset-mgmt", "ocean", "security365"
 ]
+
+# Display names for services (shown in Mattermost)
+SERVICE_DISPLAY_NAMES = {
+    "aihub": "ai-hub",
+    "safety": "안전관리시스템",
+    "infra": "인프라",
+    "biz_drive": "전기차유지보수시스템",
+    "alarm": "고장알람시스템",
+    "unit-mgnt": "유니트관리시스템",
+    "software-updater": "software-updater",
+    "sms-sender": "sms전송시스템",
+    "ai-nams": "ai-nams시스템",
+    "fleet-mgnt": "차량예약시스템",
+    "bp-eval": "BP사평가시스템",
+    "form-system": "대리점지원시스템",
+    "sko-sso-auth": "SSO인증시스템",
+    "sko-sftp": "SKT-SKO SFTP시스템",
+    "asset-mgmt": "TAMS관리시스템",
+    "ocean": "OCEAN",
+    "security365": "Security365",
+}
 
 # Valid permission types
 VALID_PERMISSION_TYPES = [p.value for p in PermissionType]
@@ -98,8 +119,12 @@ class RoleRequest:
     is_master_request: bool = False
     
     def to_dict(self) -> dict:
-        """Convert to dictionary for DynamoDB storage"""
-        return {
+        """Convert to dictionary for DynamoDB storage
+
+        Note: None values are excluded to avoid DynamoDB GSI ValidationException.
+        Items without GSI key attributes are simply not indexed (sparse index).
+        """
+        result = {
             "request_id": self.request_id,
             "requester_mattermost_id": self.requester_mattermost_id,
             "requester_name": self.requester_name,
@@ -114,13 +139,22 @@ class RoleRequest:
             "status": self.status.value,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
-            "approver_id": self.approver_id,
-            "rejection_reason": self.rejection_reason,
-            "role_arn": self.role_arn,
-            "policy_arn": self.policy_arn,
-            "post_id": self.post_id,
             "is_master_request": self.is_master_request,
         }
+
+        # Optional fields - only include if not None
+        if self.approver_id is not None:
+            result["approver_id"] = self.approver_id
+        if self.rejection_reason is not None:
+            result["rejection_reason"] = self.rejection_reason
+        if self.role_arn is not None:
+            result["role_arn"] = self.role_arn
+        if self.policy_arn is not None:
+            result["policy_arn"] = self.policy_arn
+        if self.post_id is not None:
+            result["post_id"] = self.post_id
+
+        return result
     
     @classmethod
     def from_dict(cls, data: dict) -> "RoleRequest":

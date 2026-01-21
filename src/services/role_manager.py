@@ -21,6 +21,11 @@ SERVICE_PERMISSIONS = {
             "cloudwatch:Describe*",
             "cloudwatch:Get*",
             "cloudwatch:List*",
+            # SSM Session Manager - Read permissions
+            "ssm:DescribeSessions",
+            "ssm:GetConnectionStatus",
+            "ssm:DescribeInstanceInformation",
+            "ssm:DescribeInstanceProperties",
         ],
         "update": [
             "ec2:StartInstances",
@@ -30,6 +35,20 @@ SERVICE_PERMISSIONS = {
             "ec2:ModifyVolume*",
             "ec2:CreateTags",
             "ec2:DeleteTags",
+            # SSM Session Manager - Session control (tag-based)
+            "ssm:StartSession",
+            "ssm:TerminateSession",
+            "ssm:ResumeSession",
+            "ssmmessages:CreateControlChannel",
+            "ssmmessages:CreateDataChannel",
+            "ssmmessages:OpenControlChannel",
+            "ssmmessages:OpenDataChannel",
+            "ec2messages:AcknowledgeMessage",
+            "ec2messages:DeleteMessage",
+            "ec2messages:FailMessage",
+            "ec2messages:GetEndpoint",
+            "ec2messages:GetMessages",
+            "ec2messages:SendReply",
         ],
         "create": [
             "ec2:RunInstances",
@@ -172,6 +191,57 @@ SERVICE_PERMISSIONS = {
             "s3:DeleteBucket",
             "s3:DeleteBucketPolicy",
             "s3:DeleteBucketWebsite",
+        ],
+    },
+    "elasticbeanstalk": {
+        "read": [
+            "elasticbeanstalk:Describe*",
+            "elasticbeanstalk:List*",
+            "elasticbeanstalk:Check*",
+            "elasticbeanstalk:RequestEnvironmentInfo",
+            "elasticbeanstalk:RetrieveEnvironmentInfo",
+            "elasticbeanstalk:ValidateConfigurationSettings",
+            "cloudformation:Describe*",
+            "cloudformation:List*",
+            "cloudformation:GetTemplate",
+            "autoscaling:Describe*",
+            "elasticloadbalancing:Describe*",
+            "cloudwatch:Describe*",
+            "cloudwatch:Get*",
+            "cloudwatch:List*",
+            "s3:GetBucket*",
+            "s3:GetObject*",
+            "s3:ListBucket",
+            "sns:List*",
+            "sqs:List*",
+        ],
+        "update": [
+            "elasticbeanstalk:UpdateEnvironment",
+            "elasticbeanstalk:UpdateApplication",
+            "elasticbeanstalk:UpdateApplicationVersion",
+            "elasticbeanstalk:UpdateConfigurationTemplate",
+            "elasticbeanstalk:RestartAppServer",
+            "elasticbeanstalk:RebuildEnvironment",
+            "elasticbeanstalk:SwapEnvironmentCNAMEs",
+            "elasticbeanstalk:UpdateTagsForResource",
+            "elasticbeanstalk:AddTags",
+            "elasticbeanstalk:RemoveTags",
+        ],
+        "create": [
+            "elasticbeanstalk:CreateApplication",
+            "elasticbeanstalk:CreateApplicationVersion",
+            "elasticbeanstalk:CreateEnvironment",
+            "elasticbeanstalk:CreateConfigurationTemplate",
+            "elasticbeanstalk:CreateStorageLocation",
+            "s3:PutObject",
+            "s3:CreateBucket",
+        ],
+        "delete": [
+            "elasticbeanstalk:DeleteApplication",
+            "elasticbeanstalk:DeleteApplicationVersion",
+            "elasticbeanstalk:DeleteEnvironmentConfiguration",
+            "elasticbeanstalk:DeleteConfigurationTemplate",
+            "elasticbeanstalk:TerminateEnvironment",
         ],
     },
 }
@@ -342,7 +412,7 @@ class RoleManager:
         
         # Determine which services to include
         if 'all' in target_services:
-            services_to_include = ['ec2', 'rds', 'lambda', 's3']
+            services_to_include = ['ec2', 'rds', 'lambda', 's3', 'elasticbeanstalk']
         else:
             services_to_include = target_services
         
@@ -378,18 +448,62 @@ class RoleManager:
         
         # Statement 2: Tag-based permissions (update/delete)
         if tagged_actions:
-            statements.append({
-                "Sid": "TagBasedAccess",
-                "Effect": "Allow",
-                "Action": list(set(tagged_actions)),
-                "Resource": "*",
-                "Condition": {
-                    "StringEquals": {
-                        "aws:ResourceTag/Env": request.env,
-                        "aws:ResourceTag/Service": request.service,
+            # Separate SSM actions from other actions for special condition
+            ssm_session_actions = [a for a in tagged_actions if a.startswith('ssm:') and 'Session' in a]
+            ssm_message_actions = [a for a in tagged_actions if a.startswith('ssmmessages:') or a.startswith('ec2messages:')]
+            other_tagged_actions = [a for a in tagged_actions if a not in ssm_session_actions and a not in ssm_message_actions]
+            
+            # Regular tag-based actions
+            if other_tagged_actions:
+                statements.append({
+                    "Sid": "TagBasedAccess",
+                    "Effect": "Allow",
+                    "Action": list(set(other_tagged_actions)),
+                    "Resource": "*",
+                    "Condition": {
+                        "StringEquals": {
+                            "aws:ResourceTag/Env": request.env,
+                            "aws:ResourceTag/Service": request.service,
+                        }
                     }
-                }
-            })
+                })
+            
+            # SSM Session actions with EC2 instance tag condition
+            if ssm_session_actions:
+                statements.append({
+                    "Sid": "SSMSessionAccess",
+                    "Effect": "Allow",
+                    "Action": list(set(ssm_session_actions)),
+                    "Resource": "arn:aws:ec2:*:*:instance/*",
+                    "Condition": {
+                        "StringEquals": {
+                            "ssm:resourceTag/Env": request.env,
+                            "ssm:resourceTag/Service": request.service,
+                        }
+                    }
+                })
+                
+                # Allow SSM document access for Session Manager
+                statements.append({
+                    "Sid": "SSMDocumentAccess",
+                    "Effect": "Allow",
+                    "Action": [
+                        "ssm:StartSession"
+                    ],
+                    "Resource": [
+                        "arn:aws:ssm:*:*:document/AWS-StartSSHSession",
+                        "arn:aws:ssm:*:*:document/SSM-SessionManagerRunShell"
+                    ]
+                })
+            
+            # SSM Messages permissions (no resource restriction)
+            if ssm_message_actions:
+                statements.append({
+                    "Sid": "SSMMessagesAccess",
+                    "Effect": "Allow",
+                    "Action": list(set(ssm_message_actions)),
+                    "Resource": "*"
+                })
         
         # Statement 3: Create permissions with tag enforcement
         if create_actions:

@@ -376,8 +376,8 @@ def create_approval_message(
     
     # Target service display names
     target_service_names = {
-        "all": "전체 (EC2, RDS, Lambda, S3)",
-        "ec2": "EC2",
+        "all": "전체 (EC2+SSM, RDS, Lambda, S3)",
+        "ec2": "EC2 (SSM 접속 포함)",
         "rds": "RDS",
         "lambda": "Lambda",
         "s3": "S3",

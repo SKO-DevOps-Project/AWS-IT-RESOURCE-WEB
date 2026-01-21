@@ -1,0 +1,15 @@
+{
+  "short_name": "서버접근통제",
+  "name": "서버 접근통제 시스템",
+  "icons": [
+    {
+      "src": "sk_logo.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#e4002b",
+  "background_color": "#ffffff"
+}

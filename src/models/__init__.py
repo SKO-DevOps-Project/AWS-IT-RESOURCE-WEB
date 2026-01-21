@@ -6,6 +6,7 @@ from .role_request import (
     ValidationError,
     VALID_ENVS,
     VALID_SERVICES,
+    SERVICE_DISPLAY_NAMES,
 )
 
 __all__ = [
@@ -15,4 +16,5 @@ __all__ = [
     "ValidationError",
     "VALID_ENVS",
     "VALID_SERVICES",
+    "SERVICE_DISPLAY_NAMES",
 ]

@@ -5,18 +5,16 @@ Description: AWS Role Request System - Mattermost based IAM Role request and app
 Parameters:
   MattermostUrl:
     Type: String
-    Default: "https://mattermost.skons.net"
-    Description: Mattermost server URL
-  
+    Description: Mattermost server URL (e.g., https://mattermost.example.com)
+
   MattermostBotToken:
     Type: String
     NoEcho: true
     Description: Mattermost bot token for API calls
-  
+
   RequestChannelWebhook:
     Type: String
-    Default: "https://mattermost.skons.net/hooks/b49cagrr4f8qjbjqa57x664hme"
-    Description: Incoming webhook URL for request channel (global_aws_request)
+    Description: Incoming webhook URL for request channel
   
   RequestChannelId:
     Type: String
@@ -43,6 +41,15 @@ Parameters:
     Type: String
     Default: ""
     Description: Base URL for interactive callbacks (leave empty for first deploy, update after)
+
+  JwtSecret:
+    Type: String
+    NoEcho: true
+    Description: Secret key for JWT token signing
+
+  SkonsLoginUrl:
+    Type: String
+    Description: SKONS authentication API URL
 
 Globals:
   Function:
@@ -90,6 +97,86 @@ Resources:
         - IndexName: StatusIndex
           KeySchema:
             - AttributeName: status
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      Tags:
+        - Key: Env
+          Value: infra
+        - Key: Service
+          Value: infra
+        - Key: Owner
+          Value: N1104365
+
+  # Users DynamoDB Table
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Users
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: team
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: TeamIndex
+          KeySchema:
+            - AttributeName: team
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      Tags:
+        - Key: Env
+          Value: infra
+        - Key: Service
+          Value: infra
+        - Key: Owner
+          Value: N1104365
+
+  # API Keys DynamoDB Table
+  ApiKeysTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ApiKeys
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: api_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: api_key
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Env
+          Value: infra
+        - Key: Service
+          Value: infra
+        - Key: Owner
+          Value: N1104365
+
+  # WorkRequests DynamoDB Table
+  WorkRequestsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: WorkRequests
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: request_id
+          AttributeType: S
+        - AttributeName: service_name
+          AttributeType: S
+      KeySchema:
+        - AttributeName: request_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: ServiceIndex
+          KeySchema:
+            - AttributeName: service_name
               KeyType: HASH
           Projection:
             ProjectionType: ALL
@@ -249,6 +336,256 @@ Resources:
         Service: infra
         Owner: N1104365
 
+  # CloudTrail Log Processor Lambda (triggered by S3 - manually configured)
+  CloudTrailProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: cloudtrail-log-processor
+      CodeUri: src/
+      Handler: handlers.cloudtrail_processor.handler
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          ACTIVITY_LOGS_TABLE: ActivityLogs
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: ActivityLogs
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+              Resource: "arn:aws:s3:::cloudtrail-role-activity-680877507363/*"
+      Tags:
+        Env: prod
+        Service: infra
+        Owner: N1104365
+
+  # Lambda permission for S3 to invoke
+  CloudTrailProcessorS3Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CloudTrailProcessorFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: "arn:aws:s3:::cloudtrail-role-activity-680877507363"
+      SourceAccount: !Ref AWS::AccountId
+
+  # Dashboard API Lambda
+  DashboardApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: dashboard-api
+      CodeUri: src/
+      Handler: handlers.dashboard_api.lambda_handler
+      Timeout: 30
+      Environment:
+        Variables:
+          ROLE_REQUESTS_TABLE: RoleRequests
+          ACTIVITY_LOGS_TABLE: ActivityLogs
+          WORK_REQUESTS_TABLE: WorkRequests
+          API_KEYS_TABLE: ApiKeys
+          USERS_TABLE: Users
+          JWT_SECRET: !Ref JwtSecret
+          SKONS_LOGIN_URL: !Ref SkonsLoginUrl
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: RoleRequests
+        - DynamoDBReadPolicy:
+            TableName: ActivityLogs
+        - DynamoDBCrudPolicy:
+            TableName: ApiKeys
+        - DynamoDBCrudPolicy:
+            TableName: WorkRequests
+        - DynamoDBCrudPolicy:
+            TableName: Users
+      Events:
+        GetTickets:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/tickets
+            Method: GET
+        GetTicketDetail:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/tickets/{request_id}
+            Method: GET
+        GetActivities:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/activities
+            Method: GET
+        GetUserActivities:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/users/{iam_user_name}/activities
+            Method: GET
+        OptionsTickets:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/tickets
+            Method: OPTIONS
+        OptionsTicketDetail:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/tickets/{request_id}
+            Method: OPTIONS
+        OptionsActivities:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/activities
+            Method: OPTIONS
+        OptionsUserActivities:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/users/{iam_user_name}/activities
+            Method: OPTIONS
+        GetServices:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/services
+            Method: GET
+        OptionsServices:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/services
+            Method: OPTIONS
+        GetWorkRequests:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/work-requests
+            Method: GET
+        PostWorkRequests:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/work-requests
+            Method: POST
+        OptionsWorkRequests:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/work-requests
+            Method: OPTIONS
+        PatchWorkRequest:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/work-requests/{request_id}
+            Method: PATCH
+        OptionsWorkRequestDetail:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/work-requests/{request_id}
+            Method: OPTIONS
+        GetApiKeys:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/api-keys
+            Method: GET
+        PostApiKeys:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/api-keys
+            Method: POST
+        OptionsApiKeys:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/api-keys
+            Method: OPTIONS
+        DeleteApiKey:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/api-keys/{key_id}
+            Method: DELETE
+        OptionsApiKeyDetail:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/api-keys/{key_id}
+            Method: OPTIONS
+        VerifyKey:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/verify-key
+            Method: GET
+        OptionsVerifyKey:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/verify-key
+            Method: OPTIONS
+        PostLogin:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/auth/login
+            Method: POST
+        OptionsLogin:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/auth/login
+            Method: OPTIONS
+        GetMe:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/auth/me
+            Method: GET
+        OptionsMe:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/auth/me
+            Method: OPTIONS
+        PostRefreshToken:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/auth/refresh
+            Method: POST
+        OptionsRefreshToken:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/auth/refresh
+            Method: OPTIONS
+        GetUsers:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/users
+            Method: GET
+        OptionsUsers:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/users
+            Method: OPTIONS
+      Tags:
+        Env: prod
+        Service: infra
+        Owner: N1104365
+
   # EventBridge Scheduler Role
   SchedulerExecutionRole:
     Type: AWS::IAM::Role
@@ -281,11 +618,15 @@ Outputs:
   ApiEndpoint:
     Description: API Gateway endpoint URL
     Value: !Sub "https://${RoleRequestApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
-  
+
   SlashCommandUrl:
     Description: URL for Mattermost slash command configuration
     Value: !Sub "https://${RoleRequestApi}.execute-api.${AWS::Region}.amazonaws.com/prod/slash"
-  
+
   InteractiveUrl:
     Description: URL for Mattermost interactive message callbacks
     Value: !Sub "https://${RoleRequestApi}.execute-api.${AWS::Region}.amazonaws.com/prod/interactive"
+
+  DashboardApiUrl:
+    Description: Dashboard API base URL
+    Value: !Sub "https://${RoleRequestApi}.execute-api.${AWS::Region}.amazonaws.com/prod/api"
