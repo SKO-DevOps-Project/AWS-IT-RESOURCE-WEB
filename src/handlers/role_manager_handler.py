@@ -5,6 +5,7 @@ Triggered by EventBridge Scheduler for role creation/deletion
 import os
 import json
 import boto3
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any
 
 from models import RequestStatus
@@ -12,6 +13,60 @@ from services.role_manager import RoleManager
 from services.dynamodb_repository import RoleRequestRepository
 from services.mattermost_client import MattermostClient
 from services.scheduler import Scheduler
+
+# Korea Standard Time (UTC+9)
+KST = timezone(timedelta(hours=9))
+
+# DynamoDB for work requests
+dynamodb = boto3.resource('dynamodb')
+work_requests_table = dynamodb.Table(os.environ.get('WORK_REQUESTS_TABLE', 'WorkRequests'))
+
+
+def _update_work_request_status(work_request_id: str, new_status: str) -> bool:
+    """
+    Update linked work request status
+
+    Args:
+        work_request_id: Work request ID
+        new_status: New status (in_progress, completed, etc.)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    if not work_request_id:
+        return False
+
+    try:
+        # Check current status first
+        result = work_requests_table.get_item(Key={'request_id': work_request_id})
+        work_request = result.get('Item')
+
+        if not work_request:
+            print(f"[_update_work_request_status] Work request not found: {work_request_id}")
+            return False
+
+        current_status = work_request.get('status', 'pending')
+
+        # Only update if current status is 'pending'
+        if current_status != 'pending':
+            print(f"[_update_work_request_status] Work request {work_request_id} is not pending (current: {current_status}), skipping")
+            return False
+
+        now_kst = datetime.now(KST)
+        work_requests_table.update_item(
+            Key={'request_id': work_request_id},
+            UpdateExpression='SET #status = :status, updated_at = :updated_at',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': new_status,
+                ':updated_at': now_kst.isoformat()
+            }
+        )
+        print(f"[_update_work_request_status] Updated work request {work_request_id} status to {new_status}")
+        return True
+    except Exception as e:
+        print(f"[_update_work_request_status] Failed to update work request {work_request_id}: {e}")
+        return False
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -78,7 +133,11 @@ def handle_create_role(request, repository, role_manager, mattermost_client, sch
             role_arn=role_info["role_arn"],
             policy_arn=role_info["policy_arn"],
         )
-        
+
+        # Update linked work request status to in_progress
+        if request.work_request_id:
+            _update_work_request_status(request.work_request_id, 'in_progress')
+
         # Send DM to requester (detailed message)
         print(f"[handle_create_role] Sending DM to requester: {request.requester_mattermost_id}")
         
