@@ -30,3 +30,6 @@ Thumbs.db
 # 데이터 파일 (개인정보)
 *.xlsx
 *.csv
+
+# 개발 노트 (로컬 전용)
+DEV_NOTES.md
