@@ -20,3 +20,11 @@ body {
   margin-left: 240px;
   min-height: 100vh;
 }
+
+/* 모바일 반응형 */
+@media (max-width: 768px) {
+  .main-content {
+    margin-left: 0;
+    padding-top: 60px;
+  }
+}

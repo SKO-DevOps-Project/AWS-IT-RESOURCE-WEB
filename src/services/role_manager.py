@@ -35,6 +35,9 @@ SERVICE_PERMISSIONS = {
             "ec2:ModifyVolume*",
             "ec2:CreateTags",
             "ec2:DeleteTags",
+            # EC2 Instance Connect
+            "ec2-instance-connect:SendSSHPublicKey",
+            "ec2-instance-connect:SendSerialConsoleSSHPublicKey",
             # SSM Session Manager - Session control (tag-based)
             "ssm:StartSession",
             "ssm:TerminateSession",

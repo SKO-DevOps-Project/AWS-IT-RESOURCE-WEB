@@ -1022,3 +1022,95 @@ input[type="datetime-local"]:focus {
 .accordion-ticket-actions .btn-primary:hover {
   background: #4338ca;
 }
+
+/* 모바일 반응형 */
+@media (max-width: 768px) {
+  .page {
+    padding: 20px 16px;
+  }
+
+  .page-header h2 {
+    font-size: 22px;
+  }
+
+  .filters {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .filter-group {
+    width: 100%;
+  }
+
+  .filter-select,
+  .filter-input {
+    width: 100%;
+    min-width: unset;
+  }
+
+  .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .table-container {
+    overflow-x: auto;
+  }
+
+  .data-table {
+    min-width: 700px;
+  }
+
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .modal {
+    width: 95%;
+    max-height: 90vh;
+    margin: 20px;
+  }
+
+  .modal.modal-large {
+    max-width: 95%;
+  }
+
+  .modal-body {
+    padding: 20px;
+  }
+
+  .accordion-ticket-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .linked-work-request-row {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .link-actions-row {
+    flex-direction: column;
+  }
+
+  .link-actions-row .filter-select {
+    min-width: unset;
+    width: 100%;
+    max-width: unset;
+  }
+}
+
+@media (max-width: 480px) {
+  .accordion-ticket-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .accordion-ticket-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .accordion-ticket-header .ticket-date {
+    width: 100%;
+    order: 1;
+  }
+}

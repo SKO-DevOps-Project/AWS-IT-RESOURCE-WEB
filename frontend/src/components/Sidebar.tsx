@@ -1,14 +1,22 @@
-import React from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import './Sidebar.css';
 
 const Sidebar: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, logout } = useAuth();
+  const [isOpen, setIsOpen] = useState(false);
+
+  // 페이지 이동 시 사이드바 닫기
+  useEffect(() => {
+    setIsOpen(false);
+  }, [location.pathname]);
 
   const handleHeaderClick = () => {
     navigate('/');
+    setIsOpen(false);
   };
 
   const handleLogout = () => {
@@ -16,8 +24,25 @@ const Sidebar: React.FC = () => {
     navigate('/login');
   };
 
+  const toggleSidebar = () => {
+    setIsOpen(!isOpen);
+  };
+
   return (
-    <aside className="sidebar">
+    <>
+      {/* 햄버거 메뉴 버튼 */}
+      <button className="hamburger-btn" onClick={toggleSidebar}>
+        <span className={`hamburger-icon ${isOpen ? 'open' : ''}`}>
+          <span></span>
+          <span></span>
+          <span></span>
+        </span>
+      </button>
+
+      {/* 오버레이 */}
+      {isOpen && <div className="sidebar-overlay" onClick={() => setIsOpen(false)} />}
+
+      <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
       <div className="sidebar-header" onClick={handleHeaderClick}>
         <img src="/sk_logo.png" alt="SK Logo" className="sidebar-logo" />
         <h1>서버 접근통제 시스템</h1>
@@ -54,6 +79,7 @@ const Sidebar: React.FC = () => {
         <span>v1.0.0</span>
       </div>
     </aside>
+    </>
   );
 };
 
