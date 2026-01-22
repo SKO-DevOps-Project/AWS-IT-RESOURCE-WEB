@@ -494,9 +494,9 @@ def get_activities(query_params: Dict[str, str]) -> Dict[str, Any]:
                 Key('event_time').lte(end_time)
             )
 
-        # Add event_name filter
+        # Add event_name filter (partial match)
         if event_name:
-            query_kwargs['FilterExpression'] = Attr('event_name').eq(event_name)
+            query_kwargs['FilterExpression'] = Attr('event_name').contains(event_name)
 
         result = activity_logs_table.query(**query_kwargs)
     else:
@@ -517,7 +517,7 @@ def get_activities(query_params: Dict[str, str]) -> Dict[str, Any]:
             expression_values[':end_time'] = end_time
 
         if event_name:
-            filter_expressions.append('event_name = :event_name')
+            filter_expressions.append('contains(event_name, :event_name)')
             expression_values[':event_name'] = event_name
 
         if filter_expressions:
@@ -716,40 +716,32 @@ def get_work_requests(query_params: Dict[str, str]) -> Dict[str, Any]:
     status = query_params.get('status')
     limit = int(query_params.get('limit', '50'))
 
+    # Scan with filters (partial match for service_name)
+    scan_kwargs = {
+        'Limit': limit
+    }
+
+    filter_expressions = []
+    expression_values = {}
+    expression_names = {}
+
     if service_name:
-        # Query by service_name using GSI
-        query_kwargs = {
-            'IndexName': 'ServiceIndex',
-            'KeyConditionExpression': Key('service_name').eq(service_name),
-            'Limit': limit
-        }
+        # Partial match on service_name or service_display_name
+        filter_expressions.append('(contains(service_name, :service_name) OR contains(service_display_name, :service_name))')
+        expression_values[':service_name'] = service_name
 
-        if status:
-            query_kwargs['FilterExpression'] = Attr('status').eq(status)
+    if status:
+        filter_expressions.append('#status = :status')
+        expression_values[':status'] = status
+        expression_names['#status'] = 'status'
 
-        result = work_requests_table.query(**query_kwargs)
-    else:
-        # Scan all
-        scan_kwargs = {
-            'Limit': limit
-        }
+    if filter_expressions:
+        scan_kwargs['FilterExpression'] = ' AND '.join(filter_expressions)
+        scan_kwargs['ExpressionAttributeValues'] = expression_values
+        if expression_names:
+            scan_kwargs['ExpressionAttributeNames'] = expression_names
 
-        filter_expressions = []
-        expression_values = {}
-        expression_names = {}
-
-        if status:
-            filter_expressions.append('#status = :status')
-            expression_values[':status'] = status
-            expression_names['#status'] = 'status'
-
-        if filter_expressions:
-            scan_kwargs['FilterExpression'] = ' AND '.join(filter_expressions)
-            scan_kwargs['ExpressionAttributeValues'] = expression_values
-            if expression_names:
-                scan_kwargs['ExpressionAttributeNames'] = expression_names
-
-        result = work_requests_table.scan(**scan_kwargs)
+    result = work_requests_table.scan(**scan_kwargs)
 
     items = result.get('Items', [])
 
