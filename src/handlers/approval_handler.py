@@ -35,10 +35,10 @@ class ApprovalHandler:
     def handle_interactive_action(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle interactive button click
-        
+
         Args:
             event: Mattermost interactive action event
-        
+
         Returns:
             Response for Mattermost
         """
@@ -47,7 +47,7 @@ class ApprovalHandler:
         request_id = context.get("request_id")
         approver_id = event.get("user_id")
         trigger_id = event.get("trigger_id")
-        
+
         if action == "approve":
             return self.handle_approve(request_id, approver_id, event)
         elif action == "reject":
@@ -55,8 +55,70 @@ class ApprovalHandler:
             return self.handle_reject(request_id, approver_id, "관리자에 의해 반려됨")
         elif action == "revoke":
             return self.handle_revoke(request_id, approver_id, event)
-        
+        elif action == "open_role_request_dialog":
+            work_request_id = context.get("work_request_id")
+            return self.handle_open_role_request_dialog(trigger_id, work_request_id, event)
+
         return {}
+
+    def handle_open_role_request_dialog(
+        self,
+        trigger_id: str,
+        work_request_id: str,
+        event: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Handle opening role request dialog from work request button
+
+        Args:
+            trigger_id: Mattermost trigger ID for opening dialog
+            work_request_id: Work request ID to link with the ticket
+            event: Full event data
+
+        Returns:
+            Response for Mattermost
+        """
+        print(f"[handle_open_role_request_dialog] Opening dialog for work_request_id: {work_request_id}")
+
+        if not trigger_id:
+            return {"ephemeral_text": "❌ 다이얼로그를 열 수 없습니다. 다시 시도해주세요."}
+
+        if not self.mattermost_client:
+            return {"ephemeral_text": "❌ Mattermost 클라이언트가 설정되지 않았습니다."}
+
+        try:
+            # Import here to avoid circular dependency
+            from handlers.request_handler import create_request_dialog, RequestHandler
+
+            # Get work request options for dropdown
+            handler = RequestHandler()
+            work_request_options = handler.get_work_request_options()
+
+            # Create dialog with work_request_id in callback_id
+            callback_id = f"role_request_dialog:work_request:{work_request_id}" if work_request_id else "role_request_dialog"
+
+            dialog = create_request_dialog(
+                work_request_options=work_request_options,
+                preselected_work_request_id=work_request_id,
+            )
+            dialog["callback_id"] = callback_id
+
+            # Get callback URL
+            callback_url = os.environ.get("CALLBACK_URL", "")
+            dialog_url = callback_url.replace("/interactive", "/dialog") if callback_url else ""
+
+            self.mattermost_client.open_dialog(
+                trigger_id=trigger_id,
+                url=dialog_url,
+                dialog=dialog,
+            )
+
+            print(f"[handle_open_role_request_dialog] Dialog opened successfully")
+            return {}
+
+        except Exception as e:
+            print(f"[handle_open_role_request_dialog] Error: {e}")
+            return {"ephemeral_text": f"❌ 다이얼로그 열기 실패: {str(e)}"}
     
     def _get_username(self, user_id: str) -> str:
         """Get username from user_id, fallback to user_id if not found"""

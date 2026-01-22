@@ -621,6 +621,10 @@ def create_work_request(body: Dict[str, Any]) -> Dict[str, Any]:
             start_date_display = body['start_date'][:10] if len(body['start_date']) >= 10 else body['start_date']
             end_date_display = body['end_date'][:10] if len(body['end_date']) >= 10 else body['end_date']
 
+            # Get interactive callback URL
+            api_url = os.environ.get('API_URL', '') or "https://ktmbr0kj46.execute-api.ap-northeast-2.amazonaws.com/prod"
+            callback_url = f"{api_url}/interactive"
+
             attachment = Attachment(
                 fallback=f"새 업무 요청: {SERVICE_DISPLAY_NAMES.get(service_name, service_name)}",
                 color="#0076B4",
@@ -631,6 +635,22 @@ def create_work_request(body: Dict[str, Any]) -> Dict[str, Any]:
                     {"short": True, "title": "작업 시작일", "value": start_date_display},
                     {"short": True, "title": "작업 종료일", "value": end_date_display},
                     {"short": False, "title": "작업 내용", "value": body['description']},
+                    {"short": False, "title": "요청 ID", "value": f"`{request_id}`"},
+                ],
+                actions=[
+                    {
+                        "id": "request_role",
+                        "name": "🔐 권한 요청하기",
+                        "type": "button",
+                        "style": "primary",
+                        "integration": {
+                            "url": callback_url,
+                            "context": {
+                                "action": "open_role_request_dialog",
+                                "work_request_id": request_id,
+                            },
+                        },
+                    },
                 ],
             )
 

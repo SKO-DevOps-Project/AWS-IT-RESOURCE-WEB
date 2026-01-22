@@ -117,7 +117,8 @@ class RoleRequest:
     policy_arn: Optional[str] = None
     post_id: Optional[str] = None
     is_master_request: bool = False
-    
+    work_request_id: Optional[str] = None  # 연결된 업무 요청 ID
+
     def to_dict(self) -> dict:
         """Convert to dictionary for DynamoDB storage
 
@@ -153,6 +154,8 @@ class RoleRequest:
             result["policy_arn"] = self.policy_arn
         if self.post_id is not None:
             result["post_id"] = self.post_id
+        if self.work_request_id is not None:
+            result["work_request_id"] = self.work_request_id
 
         return result
     
@@ -180,4 +183,5 @@ class RoleRequest:
             policy_arn=data.get("policy_arn"),
             post_id=data.get("post_id"),
             is_master_request=data.get("is_master_request", False),
+            work_request_id=data.get("work_request_id"),
         )

@@ -47,15 +47,37 @@ REQUEST_TEMPLATE = """------------
 )
 
 
-def create_request_dialog(is_master: bool = False, user_options: list = None) -> dict:
+def create_request_dialog(
+    is_master: bool = False,
+    user_options: list = None,
+    work_request_options: list = None,
+    preselected_work_request_id: str = None,
+) -> dict:
     """Create interactive dialog for role request
-    
+
     Args:
         is_master: Whether this is a master (admin) request
         user_options: List of user options for master dialog (format: [{"text": "username", "value": "user_id"}])
+        work_request_options: List of work request options (format: [{"text": "description", "value": "request_id"}])
+        preselected_work_request_id: Pre-selected work request ID (from button click)
     """
     elements = []
-    
+
+    # Add work request selection at the top (optional)
+    if work_request_options:
+        work_request_element = {
+            "display_name": "연관 업무 요청",
+            "name": "work_request_id",
+            "type": "select",
+            "options": [{"text": "(선택 안함)", "value": ""}] + work_request_options,
+            "help_text": "이 권한 요청과 연결할 업무 요청을 선택하세요",
+            "optional": True,
+        }
+        # Set default value if preselected
+        if preselected_work_request_id:
+            work_request_element["default"] = preselected_work_request_id
+        elements.append(work_request_element)
+
     # For master request, add target user selection at the top
     if is_master and user_options:
         elements.append({
@@ -65,7 +87,7 @@ def create_request_dialog(is_master: bool = False, user_options: list = None) ->
             "options": user_options,
             "help_text": "권한을 부여할 Mattermost 사용자를 선택하세요",
         })
-    
+
     elements.extend([
         {
             "display_name": "IAM User명",
@@ -157,7 +179,7 @@ def create_request_dialog(is_master: bool = False, user_options: list = None) ->
 
 class RequestHandler:
     """Handles slash command requests"""
-    
+
     def __init__(
         self,
         validator: Optional[RequestValidator] = None,
@@ -173,10 +195,45 @@ class RequestHandler:
         self.role_manager = role_manager
         self.scheduler = scheduler
         self.callback_url = callback_url
-    
+
     def is_admin(self, user_id: str) -> bool:
         """Check if user is an admin"""
         return user_id in ADMIN_USER_IDS
+
+    def get_work_request_options(self) -> list:
+        """Get list of active work requests for dropdown"""
+        import boto3
+
+        try:
+            dynamodb = boto3.resource('dynamodb')
+            work_requests_table = dynamodb.Table('WorkRequests')
+
+            # Scan for pending and in_progress work requests
+            result = work_requests_table.scan(Limit=50)
+            items = result.get('Items', [])
+
+            # Filter and sort by created_at descending
+            active_items = [
+                item for item in items
+                if item.get('status') in ['pending', 'in_progress']
+            ]
+            active_items.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+
+            # Convert to dropdown options
+            options = []
+            for item in active_items[:20]:  # Limit to 20 most recent
+                service_display = item.get('service_display_name', item.get('service_name', ''))
+                description = item.get('description', '')[:30]
+                requester = item.get('requester_name', '')
+                options.append({
+                    "text": f"[{service_display}] {description}... ({requester})",
+                    "value": item.get('request_id', ''),
+                })
+
+            return options
+        except Exception as e:
+            print(f"[get_work_request_options] Error: {e}")
+            return []
     
     def handle_slash_command(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -199,7 +256,9 @@ class RequestHandler:
             # Open interactive dialog
             if trigger_id and self.mattermost_client:
                 try:
-                    dialog = create_request_dialog()
+                    # Get work request options for dropdown
+                    work_request_options = self.get_work_request_options()
+                    dialog = create_request_dialog(work_request_options=work_request_options)
                     self.mattermost_client.open_dialog(
                         trigger_id=trigger_id,
                         url=self.callback_url.replace("/interactive", "/dialog"),
@@ -276,10 +335,10 @@ class RequestHandler:
     def handle_dialog_submission(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle dialog form submission
-        
+
         Args:
             event: Mattermost dialog submission event
-        
+
         Returns:
             Response for Mattermost
         """
@@ -287,11 +346,11 @@ class RequestHandler:
         user_id = event.get("user_id", "")
         user_name = event.get("user_name", "")
         callback_id = event.get("callback_id", "")
-        
+
         print(f"[handle_dialog_submission] callback_id: {callback_id}")
         print(f"[handle_dialog_submission] submission: {submission}")
         print(f"[handle_dialog_submission] user_id: {user_id}, user_name: {user_name}")
-        
+
         # If user_name is empty, get it from API
         if not user_name and user_id and self.mattermost_client:
             try:
@@ -301,10 +360,26 @@ class RequestHandler:
                     print(f"[handle_dialog_submission] Got username from API: {user_name}")
             except Exception as e:
                 print(f"[handle_dialog_submission] Failed to get username: {e}")
-        
+
+        # Parse work_request_id from callback_id if present (from button click)
+        # Format: "role_request_dialog:work_request:{work_request_id}"
+        work_request_id = None
+        if ":work_request:" in callback_id:
+            parts = callback_id.split(":work_request:")
+            work_request_id = parts[1] if len(parts) > 1 else None
+            callback_id = parts[0]  # Get base callback_id
+            print(f"[handle_dialog_submission] Extracted work_request_id from callback_id: {work_request_id}")
+
+        # Also check submission for work_request_id (from dropdown selection)
+        # Dropdown selection takes priority if present
+        submitted_work_request_id = submission.get("work_request_id", "").strip()
+        if submitted_work_request_id:
+            work_request_id = submitted_work_request_id
+            print(f"[handle_dialog_submission] Using work_request_id from dropdown: {work_request_id}")
+
         # Check if this is a master request dialog
         is_master = callback_id == "master_request_dialog"
-        
+
         if callback_id not in ["role_request_dialog", "master_request_dialog"]:
             return {}
         
@@ -410,6 +485,7 @@ class RequestHandler:
             status=RequestStatus.APPROVED if is_master else RequestStatus.PENDING,
             approver_id=user_id if is_master else None,
             is_master_request=is_master,
+            work_request_id=work_request_id,  # 업무 요청과 연결
         )
         
         # Save to repository

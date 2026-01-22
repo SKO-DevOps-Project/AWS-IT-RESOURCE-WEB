@@ -213,6 +213,8 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref RoleRequestsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref WorkRequestsTable
         - Version: '2012-10-17'
           Statement:
             - Effect: Allow
@@ -269,6 +271,8 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref RoleRequestsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref WorkRequestsTable
         - Version: '2012-10-17'
           Statement:
             - Effect: Allow
@@ -389,6 +393,7 @@ Resources:
           USERS_TABLE: Users
           JWT_SECRET: !Ref JwtSecret
           SKONS_LOGIN_URL: !Ref SkonsLoginUrl
+          API_URL: !Ref CallbackBaseUrl
       Policies:
         - DynamoDBCrudPolicy:
             TableName: RoleRequests
