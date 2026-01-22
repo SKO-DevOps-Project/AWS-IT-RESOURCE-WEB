@@ -390,7 +390,7 @@ Resources:
           JWT_SECRET: !Ref JwtSecret
           SKONS_LOGIN_URL: !Ref SkonsLoginUrl
       Policies:
-        - DynamoDBReadPolicy:
+        - DynamoDBCrudPolicy:
             TableName: RoleRequests
         - DynamoDBReadPolicy:
             TableName: ActivityLogs
@@ -413,6 +413,12 @@ Resources:
             RestApiId: !Ref RoleRequestApi
             Path: /api/tickets/{request_id}
             Method: GET
+        PatchTicket:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/tickets/{request_id}
+            Method: PATCH
         GetActivities:
           Type: Api
           Properties:
@@ -478,6 +484,24 @@ Resources:
           Properties:
             RestApiId: !Ref RoleRequestApi
             Path: /api/work-requests
+            Method: OPTIONS
+        GetWorkRequestDetail:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/work-requests/{request_id}
+            Method: GET
+        GetWorkRequestTickets:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/work-requests/{request_id}/tickets
+            Method: GET
+        OptionsWorkRequestTickets:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/work-requests/{request_id}/tickets
             Method: OPTIONS
         PatchWorkRequest:
           Type: Api

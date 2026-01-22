@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { getWorkRequests, updateWorkRequestStatus, WorkRequest } from '../api';
+import { Link } from 'react-router-dom';
+import { getWorkRequests, updateWorkRequestStatus, getWorkRequestTickets, WorkRequest, Ticket } from '../api';
+import { getNameByMattermost } from '../utils/userMapping';
 import './Pages.css';
 
 const statusColors: Record<string, string> = {
@@ -16,13 +18,43 @@ const statusLabels: Record<string, string> = {
   cancelled: '취소됨',
 };
 
+const ticketStatusColors: Record<string, string> = {
+  pending: '#f59e0b',
+  approved: '#3b82f6',
+  active: '#10b981',
+  expired: '#6b7280',
+  revoked: '#ef4444',
+  rejected: '#ef4444',
+  error: '#ef4444',
+};
+
+const ticketStatusLabels: Record<string, string> = {
+  pending: '승인대기',
+  approved: '승인됨',
+  active: '활성',
+  expired: '만료됨',
+  revoked: '회수됨',
+  rejected: '반려됨',
+  error: '오류',
+};
+
+const permissionLabels: Record<string, string> = {
+  read_only: '조회만',
+  read_update: '조회+수정',
+  read_update_create: '조회+수정+생성',
+  full: '전체(삭제포함)',
+};
+
 const WorkRequestList: React.FC = () => {
   const [workRequests, setWorkRequests] = useState<WorkRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [serviceFilter, setServiceFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [selectedRequest, setSelectedRequest] = useState<WorkRequest | null>(null);
+  const [linkedTickets, setLinkedTickets] = useState<Ticket[]>([]);
+  const [loadingTickets, setLoadingTickets] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [expandedTicketIds, setExpandedTicketIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadWorkRequests();
@@ -47,6 +79,38 @@ const WorkRequestList: React.FC = () => {
   const handleReset = () => {
     setServiceFilter('');
     setStatusFilter('');
+  };
+
+  const handleSelectRequest = async (request: WorkRequest) => {
+    setSelectedRequest(request);
+    setLoadingTickets(true);
+    try {
+      const data = await getWorkRequestTickets(request.request_id);
+      setLinkedTickets(data.tickets || []);
+    } catch (error) {
+      console.error('Failed to load linked tickets:', error);
+      setLinkedTickets([]);
+    } finally {
+      setLoadingTickets(false);
+    }
+  };
+
+  const handleCloseModal = () => {
+    setSelectedRequest(null);
+    setLinkedTickets([]);
+    setExpandedTicketIds(new Set());
+  };
+
+  const toggleTicketExpand = (ticketId: string) => {
+    setExpandedTicketIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(ticketId)) {
+        newSet.delete(ticketId);
+      } else {
+        newSet.add(ticketId);
+      }
+      return newSet;
+    });
   };
 
   const formatDateTime = (isoString: string) => {
@@ -145,8 +209,8 @@ const WorkRequestList: React.FC = () => {
               {workRequests.map((request) => (
                 <tr
                   key={request.request_id}
-                  onClick={() => setSelectedRequest(request)}
-                  style={{ cursor: 'pointer' }}
+                  onClick={() => handleSelectRequest(request)}
+                  className="clickable-row"
                 >
                   <td>
                     <span
@@ -178,11 +242,11 @@ const WorkRequestList: React.FC = () => {
       )}
 
       {selectedRequest && (
-        <div className="modal-overlay" onClick={() => setSelectedRequest(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={handleCloseModal}>
+          <div className="modal modal-large" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>업무 요청 상세</h3>
-              <button className="close-btn" onClick={() => setSelectedRequest(null)}>×</button>
+              <button className="close-btn" onClick={handleCloseModal}>×</button>
             </div>
             <div className="modal-body">
               <div className="detail-grid">
@@ -234,6 +298,90 @@ const WorkRequestList: React.FC = () => {
                   <label>요청 ID</label>
                   <code>{selectedRequest.request_id}</code>
                 </div>
+              </div>
+
+              {/* 연결된 업무 권한 요청 목록 */}
+              <div className="linked-tickets-section">
+                <h4>연결된 업무 권한 요청 ({linkedTickets.length}건)</h4>
+                {loadingTickets ? (
+                  <div className="loading-small">로딩 중...</div>
+                ) : linkedTickets.length > 0 ? (
+                  <div className="linked-tickets-list">
+                    {linkedTickets.map((ticket) => (
+                      <div
+                        key={ticket.request_id}
+                        className={`accordion-ticket-item ${expandedTicketIds.has(ticket.request_id) ? 'expanded' : ''}`}
+                      >
+                        <div
+                          className="accordion-ticket-header"
+                          onClick={() => toggleTicketExpand(ticket.request_id)}
+                        >
+                          <span
+                            className="status-badge small"
+                            style={{ backgroundColor: ticketStatusColors[ticket.status] || '#6b7280' }}
+                          >
+                            {ticketStatusLabels[ticket.status] || ticket.status}
+                          </span>
+                          <span className="ticket-info">
+                            <strong>{getNameByMattermost(ticket.requester_name)}</strong> - {ticket.env}/{ticket.service}
+                          </span>
+                          <span className="ticket-permission">{permissionLabels[ticket.permission_type] || ticket.permission_type}</span>
+                          <span className="ticket-date">{formatDateTime(ticket.created_at)}</span>
+                          <span className="accordion-arrow">{expandedTicketIds.has(ticket.request_id) ? '▲' : '▼'}</span>
+                        </div>
+                        {expandedTicketIds.has(ticket.request_id) && (
+                          <div className="accordion-ticket-body">
+                            <div className="accordion-ticket-grid">
+                              <div className="accordion-ticket-field">
+                                <label>요청자</label>
+                                <span>{getNameByMattermost(ticket.requester_name)}</span>
+                              </div>
+                              <div className="accordion-ticket-field">
+                                <label>IAM User</label>
+                                <span>{ticket.iam_user_name}</span>
+                              </div>
+                              <div className="accordion-ticket-field">
+                                <label>Environment</label>
+                                <span>{ticket.env}</span>
+                              </div>
+                              <div className="accordion-ticket-field">
+                                <label>Service</label>
+                                <span>{ticket.service}</span>
+                              </div>
+                              <div className="accordion-ticket-field">
+                                <label>권한 유형</label>
+                                <span>{permissionLabels[ticket.permission_type] || ticket.permission_type}</span>
+                              </div>
+                              <div className="accordion-ticket-field">
+                                <label>대상 서비스</label>
+                                <span>{ticket.target_services?.join(', ') || 'all'}</span>
+                              </div>
+                              <div className="accordion-ticket-field">
+                                <label>시작 시간</label>
+                                <span>{formatDateTime(ticket.start_time)}</span>
+                              </div>
+                              <div className="accordion-ticket-field">
+                                <label>종료 시간</label>
+                                <span>{formatDateTime(ticket.end_time)}</span>
+                              </div>
+                              <div className="accordion-ticket-field full-width">
+                                <label>목적</label>
+                                <span>{ticket.purpose}</span>
+                              </div>
+                            </div>
+                            <div className="accordion-ticket-actions">
+                              <Link to={`/tickets/${ticket.request_id}`} className="btn btn-small btn-primary">
+                                상세 보기 →
+                              </Link>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="empty-state-small">연결된 업무 권한 요청이 없습니다.</div>
+                )}
               </div>
             </div>
           </div>

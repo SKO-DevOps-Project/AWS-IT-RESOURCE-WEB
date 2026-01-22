@@ -161,6 +161,14 @@
   background: #f9fafb;
 }
 
+.data-table tbody tr.clickable-row {
+  cursor: pointer;
+}
+
+.data-table tbody tr.clickable-row:hover {
+  background: #e5e7eb;
+}
+
 .data-table tbody tr.has-error {
   background: #fef2f2;
 }
@@ -674,4 +682,333 @@ input[type="datetime-local"]:focus {
 .status-select-wrapper:has(.status-select-styled:disabled) {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* Linked Work Request Section */
+.linked-work-request {
+  padding: 16px 24px;
+}
+
+.linked-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.linked-info .service-badge {
+  background: #dbeafe;
+  color: #1d4ed8;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.linked-info .description {
+  color: #374151;
+  font-size: 14px;
+}
+
+.linked-info .period {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.link-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.link-actions .filter-select {
+  min-width: 300px;
+}
+
+.no-link {
+  padding: 16px 24px;
+  color: #6b7280;
+}
+
+.btn-small {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+/* Modal Large */
+.modal.modal-large {
+  max-width: 1000px;
+}
+
+/* Linked Tickets Section (WorkRequestList modal) */
+.linked-tickets-section {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.linked-tickets-section h4 {
+  margin: 0 0 16px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.linked-tickets-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.linked-ticket-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.linked-ticket-item:hover {
+  background: #e5e7eb;
+  border-color: #d1d5db;
+}
+
+.linked-ticket-item .ticket-info {
+  flex: 1;
+  font-size: 14px;
+  color: #374151;
+}
+
+.linked-ticket-item .ticket-info strong {
+  color: #111827;
+}
+
+.linked-ticket-item .ticket-permission {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.linked-ticket-item .ticket-date {
+  font-size: 13px;
+  color: #9ca3af;
+  white-space: nowrap;
+}
+
+.status-badge.small {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.loading-small {
+  padding: 20px;
+  text-align: center;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.empty-state-small {
+  padding: 20px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 14px;
+}
+
+/* Linked Work Request Detail (TicketDetail) */
+.linked-work-request-detail {
+  padding: 20px 24px;
+}
+
+.linked-work-request-info {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.linked-work-request-row {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+
+.linked-work-request-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 150px;
+}
+
+.linked-work-request-item.full-width {
+  flex: 1;
+  min-width: 100%;
+}
+
+.linked-work-request-item label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.linked-work-request-item span {
+  font-size: 14px;
+  color: #111827;
+}
+
+.linked-work-request-item .service-badge {
+  background: #dbeafe;
+  color: #1d4ed8;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.link-actions-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #f3f4f6;
+}
+
+.link-actions-row .filter-select {
+  min-width: 300px;
+  flex: 1;
+  max-width: 400px;
+}
+
+.no-link-detail {
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.no-link-detail .text-muted {
+  margin-bottom: 16px;
+}
+
+.no-link-detail .link-actions-row {
+  margin-top: 0;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+/* Accordion Ticket Item */
+.accordion-ticket-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  transition: all 0.2s;
+}
+
+.accordion-ticket-item.expanded {
+  border-color: #4f46e5;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.1);
+}
+
+.accordion-ticket-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  background: #f9fafb;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.accordion-ticket-header:hover {
+  background: #f3f4f6;
+}
+
+.accordion-ticket-item.expanded .accordion-ticket-header {
+  background: #eef2ff;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.accordion-ticket-header .ticket-info {
+  flex: 1;
+  font-size: 14px;
+  color: #374151;
+}
+
+.accordion-ticket-header .ticket-info strong {
+  color: #111827;
+}
+
+.accordion-ticket-header .ticket-permission {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.accordion-ticket-header .ticket-date {
+  font-size: 13px;
+  color: #9ca3af;
+  white-space: nowrap;
+}
+
+.accordion-arrow {
+  font-size: 10px;
+  color: #9ca3af;
+  transition: transform 0.2s;
+}
+
+.accordion-ticket-body {
+  padding: 20px;
+  background: #fff;
+}
+
+.accordion-ticket-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.accordion-ticket-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.accordion-ticket-field.full-width {
+  grid-column: 1 / -1;
+}
+
+.accordion-ticket-field label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.accordion-ticket-field span {
+  font-size: 14px;
+  color: #111827;
+}
+
+.accordion-ticket-actions {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #f3f4f6;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.accordion-ticket-actions .btn-primary {
+  background: #4f46e5;
+  color: #fff;
+  text-decoration: none;
+}
+
+.accordion-ticket-actions .btn-primary:hover {
+  background: #4338ca;
 }

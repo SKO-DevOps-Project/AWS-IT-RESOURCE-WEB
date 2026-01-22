@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getTicketDetail, Ticket, Activity } from '../api';
+import { getTicketDetail, getWorkRequests, updateTicketWorkRequest, Ticket, Activity, WorkRequest } from '../api';
+import { useAuth } from '../contexts/AuthContext';
 import './Pages.css';
 
 const statusColors: Record<string, string> = {
@@ -32,15 +33,22 @@ const permissionLabels: Record<string, string> = {
 
 const TicketDetail: React.FC = () => {
   const { requestId } = useParams<{ requestId: string }>();
+  const { user } = useAuth();
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
+  const [workRequests, setWorkRequests] = useState<WorkRequest[]>([]);
+  const [linkedWorkRequest, setLinkedWorkRequest] = useState<WorkRequest | null>(null);
+  const [selectedWorkRequestId, setSelectedWorkRequestId] = useState<string>('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (requestId) {
       loadTicketDetail();
+      loadWorkRequests();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestId]);
 
   const loadTicketDetail = async () => {
@@ -49,10 +57,34 @@ const TicketDetail: React.FC = () => {
       const data = await getTicketDetail(requestId!);
       setTicket(data.ticket);
       setActivities(data.activities || []);
+      setLinkedWorkRequest(data.work_request || null);
+      setSelectedWorkRequestId(data.ticket?.work_request_id || '');
     } catch (error) {
       console.error('Failed to load ticket detail:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadWorkRequests = async () => {
+    try {
+      const data = await getWorkRequests({ limit: 100 });
+      setWorkRequests(data.work_requests || []);
+    } catch (error) {
+      console.error('Failed to load work requests:', error);
+    }
+  };
+
+  const handleLinkWorkRequest = async () => {
+    if (!requestId) return;
+    setSaving(true);
+    try {
+      await updateTicketWorkRequest(requestId, selectedWorkRequestId || null);
+      await loadTicketDetail();
+    } catch (error) {
+      console.error('Failed to link work request:', error);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -143,6 +175,93 @@ const TicketDetail: React.FC = () => {
             </div>
           )}
         </div>
+      </div>
+
+      {/* 연관 업무 요청 섹션 */}
+      <div className="detail-card">
+        <div className="section-header">
+          <h3>연관 업무 요청</h3>
+        </div>
+        {linkedWorkRequest ? (
+          <div className="linked-work-request-detail">
+            <div className="linked-work-request-info">
+              <div className="linked-work-request-row">
+                <div className="linked-work-request-item">
+                  <label>서비스</label>
+                  <span className="service-badge">{linkedWorkRequest.service_display_name}</span>
+                </div>
+                <div className="linked-work-request-item">
+                  <label>요청자</label>
+                  <span>{linkedWorkRequest.requester_name}</span>
+                </div>
+                <div className="linked-work-request-item">
+                  <label>작업 기간</label>
+                  <span>{linkedWorkRequest.start_date} ~ {linkedWorkRequest.end_date}</span>
+                </div>
+                <div className="linked-work-request-item">
+                  <label>요청일</label>
+                  <span>{formatDateTime(linkedWorkRequest.created_at)}</span>
+                </div>
+              </div>
+              <div className="linked-work-request-row">
+                <div className="linked-work-request-item full-width">
+                  <label>작업 내용</label>
+                  <span>{linkedWorkRequest.description}</span>
+                </div>
+              </div>
+            </div>
+            {user?.is_admin && (
+              <div className="link-actions-row">
+                <select
+                  value={selectedWorkRequestId}
+                  onChange={(e) => setSelectedWorkRequestId(e.target.value)}
+                  className="filter-select"
+                >
+                  <option value="">연결 해제</option>
+                  {workRequests.map((wr) => (
+                    <option key={wr.request_id} value={wr.request_id}>
+                      [{wr.service_display_name}] {wr.description.substring(0, 30)}...
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleLinkWorkRequest}
+                  disabled={saving}
+                  className="btn btn-primary btn-small"
+                >
+                  {saving ? '저장 중...' : '변경'}
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="no-link-detail">
+            <span className="text-muted">연결된 업무 요청이 없습니다.</span>
+            {user?.is_admin && (
+              <div className="link-actions-row">
+                <select
+                  value={selectedWorkRequestId}
+                  onChange={(e) => setSelectedWorkRequestId(e.target.value)}
+                  className="filter-select"
+                >
+                  <option value="">업무 요청 선택...</option>
+                  {workRequests.map((wr) => (
+                    <option key={wr.request_id} value={wr.request_id}>
+                      [{wr.service_display_name}] {wr.description.substring(0, 30)}...
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleLinkWorkRequest}
+                  disabled={saving || !selectedWorkRequestId}
+                  className="btn btn-primary btn-small"
+                >
+                  {saving ? '저장 중...' : '연결'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="section">

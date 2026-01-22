@@ -196,6 +196,21 @@ export const updateWorkRequestStatus = async (requestId: string, status: string)
   return response.data;
 };
 
+export const getWorkRequestDetail = async (requestId: string) => {
+  const response = await api.get(`/work-requests/${requestId}`);
+  return response.data;
+};
+
+export const getWorkRequestTickets = async (requestId: string) => {
+  const response = await api.get(`/work-requests/${requestId}/tickets`);
+  return response.data;
+};
+
+export const updateTicketWorkRequest = async (ticketId: string, workRequestId: string | null) => {
+  const response = await api.patch(`/tickets/${ticketId}`, { work_request_id: workRequestId });
+  return response.data;
+};
+
 // Auth APIs
 export const login = async (userId: string, password: string): Promise<LoginResponse> => {
   const response = await api.post('/auth/login', { user_id: userId, password });

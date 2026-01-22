@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { getTickets, Ticket } from '../api';
 import { getNameByMattermost, getNameByIamUser, iamUserList } from '../utils/userMapping';
 import './Pages.css';
@@ -32,6 +32,7 @@ const permissionLabels: Record<string, string> = {
 };
 
 const TicketList: React.FC = () => {
+  const navigate = useNavigate();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -39,6 +40,10 @@ const TicketList: React.FC = () => {
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
   const [showUserDropdown, setShowUserDropdown] = useState(false);
+
+  const handleRowClick = (requestId: string) => {
+    navigate(`/tickets/${requestId}`);
+  };
 
   useEffect(() => {
     loadTickets();
@@ -217,7 +222,11 @@ const TicketList: React.FC = () => {
             </thead>
             <tbody>
               {tickets.map((ticket) => (
-                <tr key={ticket.request_id}>
+                <tr
+                  key={ticket.request_id}
+                  onClick={() => handleRowClick(ticket.request_id)}
+                  className="clickable-row"
+                >
                   <td>
                     <span
                       className="status-badge"
@@ -227,11 +236,7 @@ const TicketList: React.FC = () => {
                     </span>
                   </td>
                   <td>{getNameByMattermost(ticket.requester_name)}</td>
-                  <td>
-                    <Link to={`/tickets/${ticket.request_id}`} className="link">
-                      {getNameByIamUser(ticket.iam_user_name)}
-                    </Link>
-                  </td>
+                  <td>{getNameByIamUser(ticket.iam_user_name)}</td>
                   <td>{ticket.env} / {ticket.service}</td>
                   <td>{permissionLabels[ticket.permission_type] || ticket.permission_type}</td>
                   <td className="date-cell">

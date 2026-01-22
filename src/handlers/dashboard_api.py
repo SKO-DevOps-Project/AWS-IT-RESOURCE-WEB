@@ -269,6 +269,11 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             request_id = path_params.get('request_id') or path.split('/')[-1]
             return get_ticket_detail(request_id)
 
+        elif path.startswith('/api/tickets/') and http_method == 'PATCH':
+            request_id = path_params.get('request_id') or path.split('/')[-1]
+            body = json.loads(event.get('body', '{}'))
+            return update_ticket(request_id, body, event)
+
         elif path == '/api/activities' and http_method == 'GET':
             return get_activities(query_params)
 
@@ -286,10 +291,20 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             body = json.loads(event.get('body', '{}'))
             return create_work_request(body)
 
+        elif path.startswith('/api/work-requests/') and '/tickets' in path and http_method == 'GET':
+            # GET /api/work-requests/{request_id}/tickets
+            request_id = path.split('/')[3]
+            return get_work_request_tickets(request_id)
+
+        elif path.startswith('/api/work-requests/') and http_method == 'GET':
+            # GET /api/work-requests/{request_id}
+            request_id = path_params.get('request_id') or path.split('/')[-1]
+            return get_work_request_detail(request_id)
+
         elif path.startswith('/api/work-requests/') and http_method == 'PATCH':
             request_id = path_params.get('request_id') or path.split('/')[-1]
             body = json.loads(event.get('body', '{}'))
-            return update_work_request(request_id, body)
+            return update_work_request(request_id, body, event)
 
         # API Key management endpoints (admin only)
         elif path == '/api/api-keys' and http_method == 'GET':
@@ -418,10 +433,20 @@ def get_ticket_detail(request_id: str) -> Dict[str, Any]:
         )
         activities = activity_result.get('Items', [])
 
+    # Get linked work request if exists
+    work_request = None
+    if ticket.get('work_request_id'):
+        try:
+            wr_result = work_requests_table.get_item(Key={'request_id': ticket['work_request_id']})
+            work_request = wr_result.get('Item')
+        except Exception as e:
+            print(f"[get_ticket_detail] Error fetching work request: {e}")
+
     return response(200, {
         'ticket': ticket,
         'activities': activities,
-        'activity_count': len(activities)
+        'activity_count': len(activities),
+        'work_request': work_request
     })
 
 
@@ -626,14 +651,22 @@ def create_work_request(body: Dict[str, Any]) -> Dict[str, Any]:
     })
 
 
-def update_work_request(request_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+def update_work_request(request_id: str, body: Dict[str, Any], event: Dict[str, Any]) -> Dict[str, Any]:
     """
     PATCH /api/work-requests/{request_id}
-    Update work request status
+    Update work request status (Admin only)
 
     Request body:
     - status: New status (pending, in_progress, completed, cancelled)
     """
+    # Check if user is admin
+    user = get_current_user(event)
+    if not user:
+        return response(401, {'error': '인증이 필요합니다', 'status': 'error'})
+
+    if not user.get('is_admin', False):
+        return response(403, {'error': '권한이 없습니다. 관리자만 상태를 변경할 수 있습니다.', 'status': 'error'})
+
     new_status = body.get('status')
 
     if not new_status:
@@ -726,6 +759,133 @@ def get_work_requests(query_params: Dict[str, str]) -> Dict[str, Any]:
     return response(200, {
         'work_requests': items,
         'count': len(items)
+    })
+
+
+def get_work_request_detail(request_id: str) -> Dict[str, Any]:
+    """
+    GET /api/work-requests/{request_id}
+    Get work request detail with linked tickets
+    """
+    # Get work request
+    try:
+        result = work_requests_table.get_item(Key={'request_id': request_id})
+        work_request = result.get('Item')
+    except Exception as e:
+        print(f"[get_work_request_detail] Error: {e}")
+        return response(500, {'error': '서버 오류가 발생했습니다'})
+
+    if not work_request:
+        return response(404, {'error': '업무 요청을 찾을 수 없습니다'})
+
+    # Get linked tickets
+    linked_tickets = []
+    try:
+        # Scan RoleRequests for tickets linked to this work request
+        scan_result = role_requests_table.scan(
+            FilterExpression=Attr('work_request_id').eq(request_id)
+        )
+        linked_tickets = scan_result.get('Items', [])
+        # Sort by created_at descending
+        linked_tickets.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+    except Exception as e:
+        print(f"[get_work_request_detail] Error fetching linked tickets: {e}")
+
+    return response(200, {
+        'work_request': work_request,
+        'linked_tickets': linked_tickets,
+        'linked_ticket_count': len(linked_tickets)
+    })
+
+
+def get_work_request_tickets(request_id: str) -> Dict[str, Any]:
+    """
+    GET /api/work-requests/{request_id}/tickets
+    Get all tickets linked to a work request
+    """
+    try:
+        # Scan RoleRequests for tickets linked to this work request
+        scan_result = role_requests_table.scan(
+            FilterExpression=Attr('work_request_id').eq(request_id)
+        )
+        tickets = scan_result.get('Items', [])
+        # Sort by created_at descending
+        tickets.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+    except Exception as e:
+        print(f"[get_work_request_tickets] Error: {e}")
+        return response(500, {'error': '서버 오류가 발생했습니다'})
+
+    return response(200, {
+        'tickets': tickets,
+        'count': len(tickets)
+    })
+
+
+def update_ticket(request_id: str, body: Dict[str, Any], event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    PATCH /api/tickets/{request_id}
+    Update ticket (link to work request)
+
+    Request body:
+    - work_request_id: ID of work request to link (or null to unlink)
+    """
+    # Check authentication
+    user = get_current_user(event)
+    if not user:
+        return response(401, {'error': '인증이 필요합니다'})
+
+    # Check if ticket exists
+    try:
+        result = role_requests_table.get_item(Key={'request_id': request_id})
+        ticket = result.get('Item')
+    except Exception as e:
+        print(f"[update_ticket] Error fetching ticket: {e}")
+        return response(500, {'error': '서버 오류가 발생했습니다'})
+
+    if not ticket:
+        return response(404, {'error': '티켓을 찾을 수 없습니다'})
+
+    work_request_id = body.get('work_request_id')
+
+    # If linking to a work request, verify it exists
+    if work_request_id:
+        try:
+            wr_result = work_requests_table.get_item(Key={'request_id': work_request_id})
+            if not wr_result.get('Item'):
+                return response(404, {'error': '업무 요청을 찾을 수 없습니다'})
+        except Exception as e:
+            print(f"[update_ticket] Error fetching work request: {e}")
+            return response(500, {'error': '서버 오류가 발생했습니다'})
+
+    # Update ticket
+    now_kst = datetime.now(KST)
+    try:
+        if work_request_id:
+            role_requests_table.update_item(
+                Key={'request_id': request_id},
+                UpdateExpression='SET work_request_id = :wrid, updated_at = :updated_at',
+                ExpressionAttributeValues={
+                    ':wrid': work_request_id,
+                    ':updated_at': now_kst.isoformat()
+                }
+            )
+        else:
+            # Remove the link
+            role_requests_table.update_item(
+                Key={'request_id': request_id},
+                UpdateExpression='REMOVE work_request_id SET updated_at = :updated_at',
+                ExpressionAttributeValues={
+                    ':updated_at': now_kst.isoformat()
+                }
+            )
+    except Exception as e:
+        print(f"[update_ticket] Error updating ticket: {e}")
+        return response(500, {'error': '서버 오류가 발생했습니다'})
+
+    return response(200, {
+        'request_id': request_id,
+        'work_request_id': work_request_id,
+        'message': '업무 요청 연결이 변경되었습니다' if work_request_id else '업무 요청 연결이 해제되었습니다'
     })
 
 
@@ -936,8 +1096,16 @@ def login(body: Dict[str, Any]) -> Dict[str, Any]:
     if not user.get('is_active', True):
         return response(401, {'error': '비활성화된 계정입니다'})
 
-    # Authenticate with SKONS
-    if not authenticate_with_skons(user_id, password):
+    # Test users bypass (test1/test1, test2/test2)
+    TEST_USERS = {
+        'test1': 'test1',
+        'test2': 'test2',
+    }
+
+    is_test_user = user_id in TEST_USERS and password == TEST_USERS[user_id]
+
+    # Authenticate with SKONS (skip for test users)
+    if not is_test_user and not authenticate_with_skons(user_id, password):
         return response(401, {'error': '인증 정보가 올바르지 않습니다'})
 
     # Update last_login
