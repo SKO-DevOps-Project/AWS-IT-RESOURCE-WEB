@@ -264,6 +264,7 @@ class RequestHandler:
                         url=self.callback_url.replace("/interactive", "/dialog"),
                         dialog=dialog,
                     )
+
                     return {"response_type": "ephemeral", "text": ""}
                 except Exception as e:
                     print(f"Failed to open dialog: {e}")
@@ -939,7 +940,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     
     # Handle slash commands
     command = params.get("command", "")
-    
+
     if command == "/request-role":
         result = handler.handle_slash_command(params)
     elif command == "/master-request-role":

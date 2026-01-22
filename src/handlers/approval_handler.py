@@ -103,9 +103,10 @@ class ApprovalHandler:
             )
             dialog["callback_id"] = callback_id
 
-            # Get callback URL
-            callback_url = os.environ.get("CALLBACK_URL", "")
-            dialog_url = callback_url.replace("/interactive", "/dialog") if callback_url else ""
+            # Get callback URL with fallback
+            callback_url = os.environ.get("CALLBACK_URL", "") or "https://ktmbr0kj46.execute-api.ap-northeast-2.amazonaws.com/prod/interactive"
+            dialog_url = callback_url.replace("/interactive", "/dialog")
+            print(f"[handle_open_role_request_dialog] dialog_url: {dialog_url}")
 
             self.mattermost_client.open_dialog(
                 trigger_id=trigger_id,

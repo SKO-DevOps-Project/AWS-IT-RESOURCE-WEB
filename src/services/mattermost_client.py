@@ -119,12 +119,12 @@ class MattermostClient:
             "channel_id": channel_id,
             "message": message,
         }
-        
+
         if attachments:
             payload["props"] = {
                 "attachments": [a.to_dict() for a in attachments]
             }
-        
+
         response = requests.post(
             f"{self.base_url}/api/v4/posts",
             headers=self.headers,
@@ -425,6 +425,48 @@ def create_approval_message(
                     "context": {
                         "action": "reject",
                         "request_id": request_id,
+                    },
+                },
+            },
+        ],
+    )
+
+
+def create_work_request_notification(
+    request_id: str,
+    service_name: str,
+    requester_name: str,
+    start_date: str,
+    end_date: str,
+    description: str,
+    callback_url: str,
+) -> Attachment:
+    """
+    Create a work request notification attachment with button
+    """
+    return Attachment(
+        fallback=f"새 업무 요청: {service_name}",
+        color="#0076B4",
+        title="📋 새 업무 요청이 등록되었습니다",
+        fields=[
+            {"short": True, "title": "서비스", "value": service_name},
+            {"short": True, "title": "요청자", "value": requester_name},
+            {"short": True, "title": "작업 시작일", "value": start_date},
+            {"short": True, "title": "작업 종료일", "value": end_date},
+            {"short": False, "title": "작업 내용", "value": description},
+            {"short": False, "title": "요청 ID", "value": f"`{request_id}`"},
+        ],
+        actions=[
+            {
+                "id": "requestrole",
+                "name": "권한 요청하기",
+                "type": "button",
+                "style": "primary",
+                "integration": {
+                    "url": callback_url,
+                    "context": {
+                        "action": "open_role_request_dialog",
+                        "work_request_id": request_id,
                     },
                 },
             },
