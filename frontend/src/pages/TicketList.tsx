@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getTickets, Ticket } from '../api';
 import { getNameByMattermost, getNameByIamUser, iamUserList } from '../utils/userMapping';
 import './Pages.css';
@@ -33,9 +33,10 @@ const permissionLabels: Record<string, string> = {
 
 const TicketList: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>(searchParams.get('status') || '');
   const [userFilter, setUserFilter] = useState<string>('');
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
@@ -46,9 +47,13 @@ const TicketList: React.FC = () => {
   };
 
   useEffect(() => {
+    const status = searchParams.get('status');
+    if (status) {
+      setStatusFilter(status);
+    }
     loadTickets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [searchParams]);
 
   const loadTickets = async () => {
     setLoading(true);

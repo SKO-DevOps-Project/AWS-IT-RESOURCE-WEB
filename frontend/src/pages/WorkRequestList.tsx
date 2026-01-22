@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { getWorkRequests, updateWorkRequestStatus, getWorkRequestTickets, WorkRequest, Ticket } from '../api';
 import { getNameByMattermost } from '../utils/userMapping';
 import { useAuth } from '../contexts/AuthContext';
@@ -48,10 +48,11 @@ const permissionLabels: Record<string, string> = {
 
 const WorkRequestList: React.FC = () => {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const [workRequests, setWorkRequests] = useState<WorkRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [serviceFilter, setServiceFilter] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>(searchParams.get('status') || '');
   const [selectedRequest, setSelectedRequest] = useState<WorkRequest | null>(null);
   const [linkedTickets, setLinkedTickets] = useState<Ticket[]>([]);
   const [loadingTickets, setLoadingTickets] = useState(false);
@@ -59,9 +60,13 @@ const WorkRequestList: React.FC = () => {
   const [expandedTicketIds, setExpandedTicketIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
+    const status = searchParams.get('status');
+    if (status) {
+      setStatusFilter(status);
+    }
     loadWorkRequests();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [searchParams]);
 
   const loadWorkRequests = async () => {
     setLoading(true);
@@ -164,17 +169,6 @@ const WorkRequestList: React.FC = () => {
 
       <div className="filters">
         <div className="filter-group">
-          <label>서비스</label>
-          <input
-            type="text"
-            placeholder="서비스명"
-            value={serviceFilter}
-            onChange={(e) => setServiceFilter(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && loadWorkRequests()}
-            className="filter-input"
-          />
-        </div>
-        <div className="filter-group">
           <label>상태</label>
           <select
             value={statusFilter}
@@ -187,6 +181,17 @@ const WorkRequestList: React.FC = () => {
             <option value="completed">완료</option>
             <option value="cancelled">취소됨</option>
           </select>
+        </div>
+        <div className="filter-group">
+          <label>서비스</label>
+          <input
+            type="text"
+            placeholder="서비스명"
+            value={serviceFilter}
+            onChange={(e) => setServiceFilter(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && loadWorkRequests()}
+            className="filter-input"
+          />
         </div>
         <button onClick={loadWorkRequests} className="btn btn-primary">검색</button>
         <button onClick={handleReset} className="btn btn-secondary">초기화</button>

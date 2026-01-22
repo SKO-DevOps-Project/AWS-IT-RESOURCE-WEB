@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { getTickets, getWorkRequests, getActivities, Ticket, WorkRequest, Activity } from '../api';
 import { getNameByMattermost, getNameByIamUser } from '../utils/userMapping';
 import { useAuth } from '../contexts/AuthContext';
@@ -40,6 +40,7 @@ interface DashboardStats {
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats>({
     totalWorkRequests: 0,
     pendingWorkRequests: 0,
@@ -143,7 +144,7 @@ const Dashboard: React.FC = () => {
 
       {/* Stats Cards */}
       <div className="stats-grid">
-        <div className="stat-card" title="전체 업무 요청 건수">
+        <div className="stat-card clickable" title="전체 업무 요청 건수" onClick={() => navigate('/work-requests')}>
           <div className="stat-icon total">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -157,7 +158,7 @@ const Dashboard: React.FC = () => {
             <span className="stat-label">전체 업무</span>
           </div>
         </div>
-        <div className="stat-card" title="승인 대기 중인 업무 요청 수">
+        <div className="stat-card clickable" title="승인 대기 중인 업무 요청 수" onClick={() => navigate('/work-requests?status=pending')}>
           <div className="stat-icon pending">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10"/>
@@ -169,7 +170,7 @@ const Dashboard: React.FC = () => {
             <span className="stat-label">대기중 업무</span>
           </div>
         </div>
-        <div className="stat-card" title="진행 중인 업무 요청 수">
+        <div className="stat-card clickable" title="진행 중인 업무 요청 수" onClick={() => navigate('/work-requests?status=in_progress')}>
           <div className="stat-icon work">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
@@ -181,7 +182,7 @@ const Dashboard: React.FC = () => {
             <span className="stat-label">진행중 업무</span>
           </div>
         </div>
-        <div className="stat-card" title="현재 활성화된 AWS Role 권한 수">
+        <div className="stat-card clickable" title="현재 활성화된 AWS Role 권한 수" onClick={() => navigate('/role-requests?status=active')}>
           <div className="stat-icon active">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>

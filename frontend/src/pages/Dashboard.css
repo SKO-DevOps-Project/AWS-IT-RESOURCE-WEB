@@ -90,6 +90,15 @@
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
 }
 
+.stat-card.clickable {
+  cursor: pointer;
+}
+
+.stat-card.clickable:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
+}
+
 .stat-icon {
   width: 56px;
   height: 56px;
