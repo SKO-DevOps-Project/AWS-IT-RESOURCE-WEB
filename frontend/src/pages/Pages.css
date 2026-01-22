@@ -188,7 +188,7 @@
   border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
-  color: #fff;
+  color: #fff !important;
 }
 
 .status-badge.large {
@@ -256,6 +256,11 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.detail-item > .status-select-wrapper,
+.detail-item > .status-badge {
+  align-self: flex-start;
 }
 
 .detail-item.full-width {
@@ -628,23 +633,29 @@ input[type="datetime-local"]:focus {
 /* Status select styled */
 .status-select-wrapper {
   position: relative;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 8px 12px;
-  width: fit-content;
+  display: inline-block;
+  border-radius: 6px;
+  padding: 5px 12px;
   cursor: pointer;
+  user-select: none;
+  color: #fff;
+}
+
+.status-select-wrapper[data-label="대기중"] {
+  background: #f59e0b;
+}
+.status-select-wrapper[data-label="진행중"] {
+  background: #3b82f6;
+}
+.status-select-wrapper[data-label="완료"] {
+  background: #10b981;
+}
+.status-select-wrapper[data-label="취소됨"] {
+  background: #ef4444;
 }
 
 .status-indicator {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  pointer-events: none;
+  display: none;
 }
 
 .status-select-styled {
@@ -655,19 +666,18 @@ input[type="datetime-local"]:focus {
   height: 100%;
   border: none;
   background: transparent;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
-  color: #374151;
+  color: #fff;
   cursor: pointer;
-  padding-left: 32px;
   opacity: 0;
 }
 
 .status-select-wrapper::after {
-  content: attr(data-label);
-  font-size: 14px;
+  content: attr(data-label) " ▼";
+  font-size: 12px;
   font-weight: 600;
-  color: #374151;
+  color: #fff !important;
   pointer-events: none;
 }
 
