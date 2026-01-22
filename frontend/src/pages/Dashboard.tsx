@@ -78,7 +78,7 @@ const Dashboard: React.FC = () => {
       const [ticketsData, workRequestsData, activitiesData] = await Promise.all([
         getTickets({ limit: 100 }),
         getWorkRequests({ limit: 100 }),
-        getActivities({ limit: 10 }),
+        getActivities({ limit: 200 }),
       ]);
 
       const tickets = ticketsData.tickets || [];
