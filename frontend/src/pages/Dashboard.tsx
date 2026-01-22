@@ -1,9 +1,22 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getTickets, getWorkRequests, getActivities, Ticket, WorkRequest, Activity } from '../api';
 import { getNameByMattermost, getNameByIamUser } from '../utils/userMapping';
 import { useAuth } from '../contexts/AuthContext';
 import './Dashboard.css';
+
+// 모바일 체크 hook
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  return isMobile;
+};
 
 const statusColors: Record<string, string> = {
   pending: '#f59e0b',
@@ -41,6 +54,7 @@ interface DashboardStats {
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [stats, setStats] = useState<DashboardStats>({
     totalWorkRequests: 0,
     pendingWorkRequests: 0,
@@ -52,6 +66,7 @@ const Dashboard: React.FC = () => {
   const [recentWorkRequests, setRecentWorkRequests] = useState<WorkRequest[]>([]);
   const [recentActivityLogs, setRecentActivityLogs] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expandedActivityId, setExpandedActivityId] = useState<string | null>(null);
 
   useEffect(() => {
     loadDashboardData();
@@ -294,29 +309,81 @@ const Dashboard: React.FC = () => {
             <Link to="/activities" className="view-all">전체 보기 →</Link>
           </div>
           <div className="card-body">
-            <div className="activity-table">
-              <div className="activity-table-header">
-                <span>시간</span>
-                <span>사용자</span>
-                <span>이벤트</span>
-                <span>서비스</span>
-                <span>리전</span>
-                <span>IP</span>
+            {isMobile ? (
+              /* 모바일: 아코디언 UI */
+              <div className="activity-mobile-list">
+                {recentActivityLogs.map((activity) => (
+                  <div
+                    key={activity.log_id}
+                    className={`activity-mobile-item ${activity.error_code ? 'has-error' : ''} ${expandedActivityId === activity.log_id ? 'expanded' : ''}`}
+                  >
+                    <div
+                      className="activity-mobile-header"
+                      onClick={() => setExpandedActivityId(expandedActivityId === activity.log_id ? null : activity.log_id)}
+                    >
+                      <div className="activity-mobile-main">
+                        <span className="activity-mobile-user">{getNameByIamUser(activity.iam_user_name)}</span>
+                        <span className="activity-mobile-event">{activity.event_name}</span>
+                      </div>
+                      <div className="activity-mobile-meta">
+                        <span className="activity-mobile-time">{formatDateTime(activity.event_time)}</span>
+                        <span className="activity-mobile-arrow">{expandedActivityId === activity.log_id ? '▲' : '▼'}</span>
+                      </div>
+                    </div>
+                    {expandedActivityId === activity.log_id && (
+                      <div className="activity-mobile-body">
+                        <div className="activity-mobile-detail">
+                          <label>서비스</label>
+                          <span>{activity.event_source.split('.')[0].toUpperCase()}</span>
+                        </div>
+                        <div className="activity-mobile-detail">
+                          <label>리전</label>
+                          <span>{activity.aws_region}</span>
+                        </div>
+                        <div className="activity-mobile-detail">
+                          <label>IP</label>
+                          <span>{activity.source_ip}</span>
+                        </div>
+                        {activity.error_code && (
+                          <div className="activity-mobile-detail error">
+                            <label>오류</label>
+                            <span>{activity.error_code}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {recentActivityLogs.length === 0 && (
+                  <div className="empty-message">최근 활동이 없습니다.</div>
+                )}
               </div>
-              {recentActivityLogs.map((activity) => (
-                <div key={activity.log_id} className={`activity-table-row ${activity.error_code ? 'has-error' : ''}`}>
-                  <span className="activity-cell time">{formatDateTime(activity.event_time)}</span>
-                  <span className="activity-cell user">{getNameByIamUser(activity.iam_user_name)}</span>
-                  <span className="activity-cell event">{activity.event_name}</span>
-                  <span className="activity-cell service">{activity.event_source.split('.')[0].toUpperCase()}</span>
-                  <span className="activity-cell region">{activity.aws_region}</span>
-                  <span className="activity-cell ip">{activity.source_ip}</span>
+            ) : (
+              /* 데스크톱: 테이블 UI */
+              <div className="activity-table">
+                <div className="activity-table-header">
+                  <span>시간</span>
+                  <span>사용자</span>
+                  <span>이벤트</span>
+                  <span>서비스</span>
+                  <span>리전</span>
+                  <span>IP</span>
                 </div>
-              ))}
-              {recentActivityLogs.length === 0 && (
-                <div className="empty-message">최근 활동이 없습니다.</div>
-              )}
-            </div>
+                {recentActivityLogs.map((activity) => (
+                  <div key={activity.log_id} className={`activity-table-row ${activity.error_code ? 'has-error' : ''}`}>
+                    <span className="activity-cell time">{formatDateTime(activity.event_time)}</span>
+                    <span className="activity-cell user">{getNameByIamUser(activity.iam_user_name)}</span>
+                    <span className="activity-cell event">{activity.event_name}</span>
+                    <span className="activity-cell service">{activity.event_source.split('.')[0].toUpperCase()}</span>
+                    <span className="activity-cell region">{activity.aws_region}</span>
+                    <span className="activity-cell ip">{activity.source_ip}</span>
+                  </div>
+                ))}
+                {recentActivityLogs.length === 0 && (
+                  <div className="empty-message">최근 활동이 없습니다.</div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

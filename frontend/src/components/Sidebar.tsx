@@ -14,6 +14,18 @@ const Sidebar: React.FC = () => {
     setIsOpen(false);
   }, [location.pathname]);
 
+  // 사이드바 열릴 때 body 스크롤 방지
+  useEffect(() => {
+    if (isOpen) {
+      document.body.classList.add('sidebar-open');
+    } else {
+      document.body.classList.remove('sidebar-open');
+    }
+    return () => {
+      document.body.classList.remove('sidebar-open');
+    };
+  }, [isOpen]);
+
   const handleHeaderClick = () => {
     navigate('/');
     setIsOpen(false);
@@ -31,7 +43,7 @@ const Sidebar: React.FC = () => {
   return (
     <>
       {/* 햄버거 메뉴 버튼 */}
-      <button className="hamburger-btn" onClick={toggleSidebar}>
+      <button className={`hamburger-btn ${isOpen ? 'open' : ''}`} onClick={toggleSidebar}>
         <span className={`hamburger-icon ${isOpen ? 'open' : ''}`}>
           <span></span>
           <span></span>

@@ -232,7 +232,7 @@ const TicketList: React.FC = () => {
                   onClick={() => handleRowClick(ticket.request_id)}
                   className="clickable-row"
                 >
-                  <td>
+                  <td data-label="상태">
                     <span
                       className="status-badge"
                       style={{ backgroundColor: statusColors[ticket.status] || '#6b7280' }}
@@ -240,16 +240,16 @@ const TicketList: React.FC = () => {
                       {statusLabels[ticket.status] || ticket.status}
                     </span>
                   </td>
-                  <td>{getNameByMattermost(ticket.requester_name)}</td>
-                  <td>{getNameByIamUser(ticket.iam_user_name)}</td>
-                  <td>{ticket.env} / {ticket.service}</td>
-                  <td>{permissionLabels[ticket.permission_type] || ticket.permission_type}</td>
-                  <td className="date-cell">
+                  <td data-label="요청자">{getNameByMattermost(ticket.requester_name)}</td>
+                  <td data-label="IAM User">{getNameByIamUser(ticket.iam_user_name)}</td>
+                  <td data-label="Env/Service">{ticket.env} / {ticket.service}</td>
+                  <td data-label="권한">{permissionLabels[ticket.permission_type] || ticket.permission_type}</td>
+                  <td data-label="기간" className="date-cell">
                     <div>{formatDateTime(ticket.start_time)}</div>
                     <div className="text-muted">~ {formatDateTime(ticket.end_time)}</div>
                   </td>
-                  <td className="purpose-cell" title={ticket.purpose}>{ticket.purpose}</td>
-                  <td className="date-cell">{formatDateTime(ticket.created_at)}</td>
+                  <td data-label="목적" className="purpose-cell" title={ticket.purpose}>{ticket.purpose}</td>
+                  <td data-label="요청일시" className="date-cell">{formatDateTime(ticket.created_at)}</td>
                 </tr>
               ))}
             </tbody>

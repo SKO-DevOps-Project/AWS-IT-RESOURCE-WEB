@@ -51,6 +51,13 @@ const TicketDetail: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestId]);
 
+  // 컴포넌트 unmount 시 modal-open 클래스 제거
+  useEffect(() => {
+    return () => {
+      document.body.classList.remove('modal-open');
+    };
+  }, []);
+
   const loadTicketDetail = async () => {
     setLoading(true);
     try {
@@ -116,7 +123,7 @@ const TicketDetail: React.FC = () => {
   return (
     <div className="page">
       <div className="page-header">
-        <Link to="/" className="back-link">← 목록으로</Link>
+        <Link to="/role-requests" className="back-link">← 목록으로</Link>
         <h2>티켓 상세</h2>
       </div>
 
@@ -270,7 +277,7 @@ const TicketDetail: React.FC = () => {
         </div>
 
         {activities.length > 0 ? (
-          <div className="table-container">
+          <div className="table-container activity-log-table">
             <table className="data-table">
               <thead>
                 <tr>
@@ -285,8 +292,8 @@ const TicketDetail: React.FC = () => {
               <tbody>
                 {activities.map((activity) => (
                   <tr key={activity.log_id}>
-                    <td>{formatDateTime(activity.event_time)}</td>
-                    <td>
+                    <td data-label="시간">{formatDateTime(activity.event_time)}</td>
+                    <td data-label="API 호출">
                       <span className={activity.error_code ? 'text-error' : ''}>
                         {activity.event_name}
                       </span>
@@ -294,13 +301,13 @@ const TicketDetail: React.FC = () => {
                         <span className="error-badge">{activity.error_code}</span>
                       )}
                     </td>
-                    <td>{getServiceFromSource(activity.event_source)}</td>
-                    <td>{activity.aws_region}</td>
-                    <td>{activity.source_ip}</td>
-                    <td>
+                    <td data-label="서비스">{getServiceFromSource(activity.event_source)}</td>
+                    <td data-label="리전">{activity.aws_region}</td>
+                    <td data-label="IP">{activity.source_ip}</td>
+                    <td data-label="" className="action-cell">
                       <button
-                        className="btn btn-small"
-                        onClick={() => setSelectedActivity(activity)}
+                        className="btn btn-small btn-view"
+                        onClick={() => { setSelectedActivity(activity); document.body.classList.add('modal-open'); }}
                       >
                         보기
                       </button>
@@ -316,11 +323,11 @@ const TicketDetail: React.FC = () => {
       </div>
 
       {selectedActivity && (
-        <div className="modal-overlay" onClick={() => setSelectedActivity(null)}>
+        <div className="modal-overlay" onClick={() => { setSelectedActivity(null); document.body.classList.remove('modal-open'); }}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>활동 상세 - {selectedActivity.event_name}</h3>
-              <button className="close-btn" onClick={() => setSelectedActivity(null)}>×</button>
+              <button className="close-btn" onClick={() => { setSelectedActivity(null); document.body.classList.remove('modal-open'); }}>×</button>
             </div>
             <div className="modal-body">
               <div className="detail-grid">

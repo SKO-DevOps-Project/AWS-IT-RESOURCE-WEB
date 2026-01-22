@@ -68,6 +68,13 @@ const WorkRequestList: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
+  // 컴포넌트 unmount 시 modal-open 클래스 제거
+  useEffect(() => {
+    return () => {
+      document.body.classList.remove('modal-open');
+    };
+  }, []);
+
   const loadWorkRequests = async () => {
     setLoading(true);
     try {
@@ -90,6 +97,7 @@ const WorkRequestList: React.FC = () => {
 
   const handleSelectRequest = async (request: WorkRequest) => {
     setSelectedRequest(request);
+    document.body.classList.add('modal-open');
     setLoadingTickets(true);
     try {
       const data = await getWorkRequestTickets(request.request_id);
@@ -106,6 +114,7 @@ const WorkRequestList: React.FC = () => {
     setSelectedRequest(null);
     setLinkedTickets([]);
     setExpandedTicketIds(new Set());
+    document.body.classList.remove('modal-open');
   };
 
   const toggleTicketExpand = (ticketId: string) => {
@@ -219,7 +228,7 @@ const WorkRequestList: React.FC = () => {
                   onClick={() => handleSelectRequest(request)}
                   className="clickable-row"
                 >
-                  <td>
+                  <td data-label="상태">
                     <span
                       className="status-badge"
                       style={{ backgroundColor: statusColors[request.status] || '#6b7280' }}
@@ -227,17 +236,17 @@ const WorkRequestList: React.FC = () => {
                       {statusLabels[request.status] || request.status}
                     </span>
                   </td>
-                  <td>
+                  <td data-label="서비스">
                     <div>{request.service_name}</div>
                     <div className="text-muted">{request.service_display_name}</div>
                   </td>
-                  <td>{request.requester_name}</td>
-                  <td className="date-cell">
+                  <td data-label="요청자">{request.requester_name}</td>
+                  <td data-label="작업 기간" className="date-cell">
                     <div>{formatDate(request.start_date)}</div>
                     <div className="text-muted">~ {formatDate(request.end_date)}</div>
                   </td>
-                  <td className="purpose-cell" title={request.description}>{request.description}</td>
-                  <td className="date-cell">{formatDateTime(request.created_at)}</td>
+                  <td data-label="작업 내용" className="purpose-cell" title={request.description}>{request.description}</td>
+                  <td data-label="요청일시" className="date-cell">{formatDateTime(request.created_at)}</td>
                 </tr>
               ))}
             </tbody>
@@ -386,7 +395,11 @@ const WorkRequestList: React.FC = () => {
                               </div>
                             </div>
                             <div className="accordion-ticket-actions">
-                              <Link to={`/tickets/${ticket.request_id}`} className="btn btn-small btn-primary">
+                              <Link
+                                to={`/tickets/${ticket.request_id}`}
+                                className="btn btn-small btn-primary"
+                                onClick={() => document.body.classList.remove('modal-open')}
+                              >
                                 상세 보기 →
                               </Link>
                             </div>

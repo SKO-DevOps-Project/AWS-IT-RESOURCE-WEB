@@ -25,6 +25,5 @@ body {
 @media (max-width: 768px) {
   .main-content {
     margin-left: 0;
-    padding-top: 60px;
   }
 }

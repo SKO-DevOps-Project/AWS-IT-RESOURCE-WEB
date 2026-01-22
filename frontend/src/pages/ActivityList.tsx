@@ -18,6 +18,13 @@ const ActivityList: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 컴포넌트 unmount 시 modal-open 클래스 제거
+  useEffect(() => {
+    return () => {
+      document.body.classList.remove('modal-open');
+    };
+  }, []);
+
   const loadActivities = async () => {
     setLoading(true);
     try {
@@ -181,16 +188,16 @@ const ActivityList: React.FC = () => {
               {activities.map((activity) => (
                 <tr
                   key={activity.log_id}
-                  onClick={() => setSelectedActivity(activity)}
+                  onClick={() => { setSelectedActivity(activity); document.body.classList.add('modal-open'); }}
                   style={{ cursor: 'pointer' }}
                   className={activity.error_code ? 'has-error' : ''}
                 >
-                  <td className="date-cell">{formatDateTime(activity.event_time)}</td>
-                  <td>{getNameByIamUser(activity.iam_user_name)}</td>
-                  <td>
+                  <td data-label="시간" className="date-cell">{formatDateTime(activity.event_time)}</td>
+                  <td data-label="사용자">{getNameByIamUser(activity.iam_user_name)}</td>
+                  <td data-label="서비스">
                     <span className="activity-service">{getServiceFromSource(activity.event_source)}</span>
                   </td>
-                  <td>
+                  <td data-label="이벤트">
                     <span className={activity.error_code ? 'text-error' : ''}>
                       {activity.event_name}
                     </span>
@@ -198,8 +205,8 @@ const ActivityList: React.FC = () => {
                       <span className="error-badge">{activity.error_code}</span>
                     )}
                   </td>
-                  <td className="date-cell">{activity.source_ip}</td>
-                  <td>{activity.aws_region}</td>
+                  <td data-label="IP" className="date-cell">{activity.source_ip}</td>
+                  <td data-label="리전">{activity.aws_region}</td>
                 </tr>
               ))}
             </tbody>
@@ -211,11 +218,11 @@ const ActivityList: React.FC = () => {
       )}
 
       {selectedActivity && (
-        <div className="modal-overlay" onClick={() => setSelectedActivity(null)}>
+        <div className="modal-overlay" onClick={() => { setSelectedActivity(null); document.body.classList.remove('modal-open'); }}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>활동 상세 - {selectedActivity.event_name}</h3>
-              <button className="close-btn" onClick={() => setSelectedActivity(null)}>×</button>
+              <button className="close-btn" onClick={() => { setSelectedActivity(null); document.body.classList.remove('modal-open'); }}>×</button>
             </div>
             <div className="modal-body">
               <div className="detail-grid">

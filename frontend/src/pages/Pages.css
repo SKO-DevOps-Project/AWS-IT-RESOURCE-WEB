@@ -403,8 +403,11 @@
   font-size: 12px;
   font-family: 'SF Mono', Monaco, monospace;
   overflow-x: auto;
+  overflow-y: auto;
   max-height: 300px;
   line-height: 1.5;
+  white-space: pre;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Utility */
@@ -570,6 +573,59 @@
   border-radius: 4px;
   font-size: 11px;
   font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .activity-service {
+    background: transparent;
+    color: #1d4ed8;
+    padding: 0;
+    font-size: 13px;
+  }
+
+  /* 활동 로그 테이블 (TicketDetail) - 기본 grid-row 규칙 무시 */
+  .activity-log-table .data-table td {
+    grid-row: auto !important;
+  }
+
+  .activity-log-table .data-table td[data-label="시간"] {
+    grid-column: 1 / 2 !important;
+  }
+
+  .activity-log-table .data-table td[data-label="API 호출"] {
+    grid-column: 2 / 3 !important;
+  }
+
+  .activity-log-table .data-table td[data-label="서비스"] {
+    grid-column: 1 / 2 !important;
+  }
+
+  .activity-log-table .data-table td[data-label="리전"] {
+    grid-column: 2 / 3 !important;
+  }
+
+  .activity-log-table .data-table td[data-label="IP"] {
+    grid-column: 1 / -1 !important;
+  }
+
+  /* 액션 셀 (보기 버튼) - 전체 너비, 중앙 정렬 */
+  .data-table td.action-cell {
+    grid-column: 1 / -1 !important;
+    padding-top: 12px !important;
+    margin-top: 4px;
+    border-top: 1px solid #f3f4f6;
+  }
+
+  .data-table td.action-cell::before {
+    display: none !important;
+  }
+
+  .data-table td.action-cell .btn-view {
+    width: 100%;
+    justify-content: center;
+    padding: 10px 16px;
+    background: #f3f4f6;
+  }
 }
 
 .activity-ip {
@@ -1026,16 +1082,26 @@ input[type="datetime-local"]:focus {
 /* 모바일 반응형 */
 @media (max-width: 768px) {
   .page {
-    padding: 20px 16px;
+    padding: 16px;
+    padding-top: 60px;
+    overflow-x: hidden;
+  }
+
+  .page-header {
+    margin-bottom: 20px;
   }
 
   .page-header h2 {
-    font-size: 22px;
+    font-size: 20px;
+  }
+
+  .page-description {
+    font-size: 13px;
   }
 
   .filters {
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
   }
 
   .filter-group {
@@ -1046,41 +1112,258 @@ input[type="datetime-local"]:focus {
   .filter-input {
     width: 100%;
     min-width: unset;
+    padding: 12px 14px;
   }
 
   .btn {
     width: 100%;
     justify-content: center;
+    padding: 12px 20px;
   }
 
+  /* 테이블 -> 카드 뷰 변환 */
   .table-container {
-    overflow-x: auto;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    overflow: visible;
   }
 
   .data-table {
-    min-width: 700px;
+    display: block;
+    min-width: unset;
+  }
+
+  .data-table thead {
+    display: none;
+  }
+
+  .data-table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .data-table tbody tr {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    grid-template-rows: auto auto auto auto auto;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 16px;
+    gap: 12px 16px;
+  }
+
+  .data-table tbody tr:hover {
+    background: #fff;
+    border-color: #4f46e5;
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.1);
+  }
+
+  .data-table td {
+    display: flex !important;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 !important;
+    border: none !important;
+    font-size: 14px;
+  }
+
+  .data-table td::before {
+    content: attr(data-label);
+    font-size: 11px;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  /* 업무 요청 카드 레이아웃 */
+  /* Row 1: 서비스(좌) | 상태(우) */
+  .data-table td[data-label="서비스"] {
+    grid-column: 1 / 2 !important;
+    grid-row: 1 / 2 !important;
+  }
+
+  .data-table td[data-label="상태"] {
+    grid-column: 2 / 3 !important;
+    grid-row: 1 / 2 !important;
+    align-items: flex-end;
+  }
+
+  .data-table td[data-label="상태"]::before {
+    display: none;
+  }
+
+  /* Row 2: 요청자(좌) | 작업기간(우) */
+  .data-table td[data-label="요청자"] {
+    grid-column: 1 / 2 !important;
+    grid-row: 2 / 3 !important;
+  }
+
+  .data-table td[data-label="작업 기간"] {
+    grid-column: 2 / 3 !important;
+    grid-row: 2 / 3 !important;
+  }
+
+  /* Row 3: 작업내용 (전체) */
+  .data-table td[data-label="작업 내용"] {
+    grid-column: 1 / -1 !important;
+    grid-row: 3 / 4 !important;
+  }
+
+  /* Row 4: 요청일시 (전체) */
+  .data-table td[data-label="요청일시"] {
+    grid-column: 1 / -1 !important;
+    grid-row: 4 / 5 !important;
+    padding-top: 8px;
+    border-top: 1px solid #f3f4f6;
+    margin-top: 4px;
+  }
+
+  /* TicketList 카드 레이아웃 */
+  /* Row 1: 요청자(좌) | 상태(우) - 상태는 위에서 이미 설정됨 */
+  /* Row 2: IAM User(좌) | Env/Service(우) */
+  .data-table td[data-label="IAM User"] {
+    grid-column: 1 / 2 !important;
+    grid-row: 2 / 3 !important;
+  }
+
+  .data-table td[data-label="Env/Service"] {
+    grid-column: 2 / 3 !important;
+    grid-row: 2 / 3 !important;
+  }
+
+  /* Row 3: 권한(좌) | 기간(우) */
+  .data-table td[data-label="권한"] {
+    grid-column: 1 / 2 !important;
+    grid-row: 3 / 4 !important;
+  }
+
+  .data-table td[data-label="기간"] {
+    grid-column: 2 / 3 !important;
+    grid-row: 3 / 4 !important;
+  }
+
+  /* Row 4: 목적 (전체) */
+  .data-table td[data-label="목적"] {
+    grid-column: 1 / -1 !important;
+    grid-row: 4 / 5 !important;
+  }
+
+  .date-cell {
+    font-size: 13px;
+  }
+
+  .date-cell .text-muted {
+    font-size: 12px;
+  }
+
+  .purpose-cell {
+    max-width: none;
+    white-space: normal;
   }
 
   .detail-grid {
     grid-template-columns: 1fr;
   }
 
+  /* 모달 모바일 */
+  .modal-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
   .modal {
-    width: 95%;
+    width: 100%;
+    max-width: 100%;
     max-height: 90vh;
-    margin: 20px;
+    margin: 0;
+    border-radius: 16px 16px 0 0;
   }
 
   .modal.modal-large {
-    max-width: 95%;
+    max-width: 100%;
+  }
+
+  .modal-header {
+    padding: 16px 20px;
+    position: sticky;
+    top: 0;
+  }
+
+  .modal-header h3 {
+    font-size: 16px;
   }
 
   .modal-body {
-    padding: 20px;
+    padding: 16px 20px 24px;
+  }
+
+  .detail-item {
+    gap: 4px;
+  }
+
+  .detail-item label {
+    font-size: 11px;
+  }
+
+  .detail-item span,
+  .detail-item code {
+    font-size: 13px;
+  }
+
+  .detail-item code {
+    font-size: 11px;
+    padding: 6px 10px;
+  }
+
+  .description-box {
+    font-size: 13px;
+    padding: 12px;
   }
 
   .accordion-ticket-grid {
     grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .accordion-ticket-header {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 14px;
+  }
+
+  .accordion-ticket-header .ticket-info {
+    flex: 1 1 100%;
+    order: 1;
+  }
+
+  .accordion-ticket-header .ticket-permission {
+    order: 3;
+    font-size: 12px;
+  }
+
+  .accordion-ticket-header .ticket-date {
+    order: 2;
+    flex: 1;
+  }
+
+  .accordion-ticket-header .accordion-arrow {
+    order: 4;
+  }
+
+  .accordion-ticket-body {
+    padding: 16px;
+  }
+
+  .accordion-ticket-field label {
+    font-size: 10px;
+  }
+
+  .accordion-ticket-field span {
+    font-size: 13px;
   }
 
   .linked-work-request-row {
@@ -1097,9 +1380,81 @@ input[type="datetime-local"]:focus {
     width: 100%;
     max-width: unset;
   }
+
+  .linked-tickets-section {
+    margin-top: 20px;
+    padding-top: 16px;
+  }
+
+  .linked-tickets-section h4 {
+    font-size: 14px;
+  }
+
+  /* 활동 로그 리스트 모바일 - 카드 그리드 레이아웃 */
+  .activity-list {
+    background: transparent;
+    border: none;
+  }
+
+  .activity-list-header {
+    display: none;
+  }
+
+  .activity-item {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding: 14px 16px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    margin-bottom: 10px;
+  }
+
+  .activity-item:last-child {
+    margin-bottom: 0;
+  }
+
+  .activity-time {
+    font-size: 12px;
+    grid-column: 2 / 3;
+    text-align: right;
+    order: -1;
+  }
+
+  .activity-user {
+    font-size: 15px;
+    font-weight: 600;
+    grid-column: 1 / 2;
+  }
+
+  .activity-event {
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+  }
+
+  .activity-event-name {
+    font-size: 13px;
+  }
+
+  .activity-ip {
+    font-size: 12px;
+  }
+
+  .activity-region {
+    font-size: 12px;
+    text-align: right;
+  }
 }
 
-@media (max-width: 480px) {
+/* 모달 열릴 때 body 스크롤 방지 */
+body.modal-open {
+  overflow: hidden;
+  position: fixed;
+  width: 100%;
+}
+
+@media (max-width: 500px) {
   .accordion-ticket-grid {
     grid-template-columns: 1fr;
   }
@@ -1112,5 +1467,45 @@ input[type="datetime-local"]:focus {
   .accordion-ticket-header .ticket-date {
     width: 100%;
     order: 1;
+  }
+
+  /* 500px 이하에서는 1열 레이아웃, 단 상태는 우측 유지 */
+  .data-table tbody tr {
+    grid-template-columns: 1fr auto !important;
+  }
+
+  /* 상태는 항상 우측 상단 */
+  .data-table td[data-label="상태"] {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    align-items: flex-end;
+  }
+
+  /* 나머지는 좌측 열에 순서대로 */
+  .data-table td[data-label="서비스"],
+  .data-table td[data-label="요청자"] {
+    grid-column: 1 !important;
+    grid-row: auto !important;
+  }
+
+  .data-table td[data-label="서비스"] {
+    grid-row: 1 !important;
+  }
+
+  .data-table td[data-label="작업 기간"],
+  .data-table td[data-label="작업 내용"],
+  .data-table td[data-label="기간"],
+  .data-table td[data-label="목적"],
+  .data-table td[data-label="IAM User"],
+  .data-table td[data-label="Env/Service"],
+  .data-table td[data-label="권한"],
+  .data-table td[data-label="요청일시"],
+  .data-table td[data-label="시간"],
+  .data-table td[data-label="사용자"],
+  .data-table td[data-label="이벤트"],
+  .data-table td[data-label="IP"],
+  .data-table td[data-label="리전"] {
+    grid-column: 1 / -1 !important;
+    grid-row: auto !important;
   }
 }
