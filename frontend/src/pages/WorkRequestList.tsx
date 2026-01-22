@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getWorkRequests, updateWorkRequestStatus, getWorkRequestTickets, WorkRequest, Ticket } from '../api';
 import { getNameByMattermost } from '../utils/userMapping';
+import { useAuth } from '../contexts/AuthContext';
 import './Pages.css';
 
 const statusColors: Record<string, string> = {
@@ -46,6 +47,7 @@ const permissionLabels: Record<string, string> = {
 };
 
 const WorkRequestList: React.FC = () => {
+  const { user } = useAuth();
   const [workRequests, setWorkRequests] = useState<WorkRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [serviceFilter, setServiceFilter] = useState<string>('');
@@ -252,23 +254,32 @@ const WorkRequestList: React.FC = () => {
               <div className="detail-grid">
                 <div className="detail-item">
                   <label>상태</label>
-                  <div className="status-select-wrapper" data-label={statusLabels[selectedRequest.status]}>
+                  {user?.is_admin ? (
+                    <div className="status-select-wrapper" data-label={statusLabels[selectedRequest.status]}>
+                      <span
+                        className="status-indicator"
+                        style={{ backgroundColor: statusColors[selectedRequest.status] }}
+                      />
+                      <select
+                        value={selectedRequest.status}
+                        onChange={(e) => handleStatusChange(selectedRequest.request_id, e.target.value)}
+                        disabled={updating}
+                        className="status-select-styled"
+                      >
+                        <option value="pending">대기중</option>
+                        <option value="in_progress">진행중</option>
+                        <option value="completed">완료</option>
+                        <option value="cancelled">취소됨</option>
+                      </select>
+                    </div>
+                  ) : (
                     <span
-                      className="status-indicator"
-                      style={{ backgroundColor: statusColors[selectedRequest.status] }}
-                    />
-                    <select
-                      value={selectedRequest.status}
-                      onChange={(e) => handleStatusChange(selectedRequest.request_id, e.target.value)}
-                      disabled={updating}
-                      className="status-select-styled"
+                      className="status-badge"
+                      style={{ backgroundColor: statusColors[selectedRequest.status] || '#6b7280' }}
                     >
-                      <option value="pending">대기중</option>
-                      <option value="in_progress">진행중</option>
-                      <option value="completed">완료</option>
-                      <option value="cancelled">취소됨</option>
-                    </select>
-                  </div>
+                      {statusLabels[selectedRequest.status] || selectedRequest.status}
+                    </span>
+                  )}
                 </div>
                 <div className="detail-item">
                   <label>요청자</label>
