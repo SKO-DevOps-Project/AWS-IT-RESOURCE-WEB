@@ -4,6 +4,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Sidebar from './components/Sidebar';
 import LoginPage from './pages/LoginPage';
+import Dashboard from './pages/Dashboard';
 import WorkRequestList from './pages/WorkRequestList';
 import TicketList from './pages/TicketList';
 import TicketDetail from './pages/TicketDetail';
@@ -24,7 +25,8 @@ function App() {
                   <Sidebar />
                   <main className="main-content">
                     <Routes>
-                      <Route path="/" element={<WorkRequestList />} />
+                      <Route path="/" element={<Dashboard />} />
+                      <Route path="/work-requests" element={<WorkRequestList />} />
                       <Route path="/role-requests" element={<TicketList />} />
                       <Route path="/tickets/:requestId" element={<TicketDetail />} />
                       <Route path="/activities" element={<ActivityList />} />
