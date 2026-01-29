@@ -63,6 +63,34 @@
   font-size: 14px;
 }
 
+/* Nav Group 스타일 */
+.nav-group {
+  margin: 8px 0;
+}
+
+.nav-group-title {
+  padding: 8px 20px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.nav-item-sub {
+  padding-left: 32px;
+}
+
+.nav-admin-badge {
+  margin-left: 8px;
+  padding: 2px 6px;
+  background: #4f46e5;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 4px;
+}
+
 .sidebar-user {
   padding: 16px 20px;
   border-top: 1px solid #2d2d44;

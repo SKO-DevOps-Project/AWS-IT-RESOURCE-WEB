@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { getWorkRequests, updateWorkRequestStatus, getWorkRequestTickets, WorkRequest, Ticket } from '../api';
 import { getNameByMattermost } from '../utils/userMapping';
 import { useAuth } from '../contexts/AuthContext';
+import Pagination from '../components/Pagination';
 import './Pages.css';
 
 const statusColors: Record<string, string> = {
@@ -46,6 +47,8 @@ const permissionLabels: Record<string, string> = {
   full: '전체(삭제포함)',
 };
 
+const ITEMS_PER_PAGE = 20;
+
 const WorkRequestList: React.FC = () => {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
@@ -58,6 +61,7 @@ const WorkRequestList: React.FC = () => {
   const [loadingTickets, setLoadingTickets] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [expandedTicketIds, setExpandedTicketIds] = useState<Set<string>>(new Set());
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     const status = searchParams.get('status');
@@ -93,6 +97,18 @@ const WorkRequestList: React.FC = () => {
   const handleReset = () => {
     setServiceFilter('');
     setStatusFilter('');
+    setCurrentPage(1);
+  };
+
+  // 페이지네이션 계산
+  const totalItems = workRequests.length;
+  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const paginatedRequests = workRequests.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleSelectRequest = async (request: WorkRequest) => {
@@ -222,7 +238,7 @@ const WorkRequestList: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {workRequests.map((request) => (
+              {paginatedRequests.map((request) => (
                 <tr
                   key={request.request_id}
                   onClick={() => handleSelectRequest(request)}
@@ -254,6 +270,13 @@ const WorkRequestList: React.FC = () => {
           {workRequests.length === 0 && (
             <div className="empty-state">데이터가 없습니다.</div>
           )}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={handlePageChange}
+            totalItems={totalItems}
+            itemsPerPage={ITEMS_PER_PAGE}
+          />
         </div>
       )}
 

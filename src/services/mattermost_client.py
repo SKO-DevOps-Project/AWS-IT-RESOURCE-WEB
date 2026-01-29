@@ -155,7 +155,25 @@ class MattermostClient:
         
         # Then send the message
         return self.send_to_channel(channel_id, message)
-    
+
+    def send_dm_by_username(self, username: str, message: str) -> Optional[Dict[str, Any]]:
+        """
+        Send a direct message to a user by username
+
+        Args:
+            username: Mattermost username
+            message: Message text
+
+        Returns:
+            API response or None if user not found
+        """
+        user = self.get_user_by_username(username)
+        if not user:
+            print(f"[MattermostClient] User not found: {username}")
+            return None
+
+        return self.send_dm(user["id"], message)
+
     def send_interactive_message(
         self,
         channel_id: str,

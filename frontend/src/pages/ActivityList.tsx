@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { getActivities, Activity } from '../api';
 import { iamUserList, getNameByIamUser } from '../utils/userMapping';
+import Pagination from '../components/Pagination';
 import './Pages.css';
+
+const ITEMS_PER_PAGE = 20;
 
 const ActivityList: React.FC = () => {
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -12,6 +15,7 @@ const ActivityList: React.FC = () => {
   const [endDate, setEndDate] = useState<string>('');
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     loadActivities();
@@ -58,6 +62,18 @@ const ActivityList: React.FC = () => {
     setEventFilter('');
     setStartDate('');
     setEndDate('');
+    setCurrentPage(1);
+  };
+
+  // 페이지네이션 계산
+  const totalItems = activities.length;
+  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const paginatedActivities = activities.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleUserSelect = (iamUser: string) => {
@@ -185,7 +201,7 @@ const ActivityList: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {activities.map((activity) => (
+              {paginatedActivities.map((activity) => (
                 <tr
                   key={activity.log_id}
                   onClick={() => { setSelectedActivity(activity); document.body.classList.add('modal-open'); }}
@@ -214,6 +230,13 @@ const ActivityList: React.FC = () => {
           {activities.length === 0 && (
             <div className="empty-state">활동 로그가 없습니다.</div>
           )}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={handlePageChange}
+            totalItems={totalItems}
+            itemsPerPage={ITEMS_PER_PAGE}
+          />
         </div>
       )}
 

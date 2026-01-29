@@ -72,6 +72,7 @@ export interface Ticket {
   role_arn?: string;
   policy_arn?: string;
   approver_id?: string;
+  work_request_id?: string;
   created_at: string;
   updated_at: string;
 }
@@ -123,6 +124,43 @@ export interface User {
   is_admin: boolean;
   last_login?: string;
   created_at?: string;
+  iam_user_name?: string;
+  mattermost_id?: string;
+}
+
+export interface RoleRequestOption {
+  value: string;
+  label: string;
+}
+
+export interface RoleRequestOptionsResponse {
+  envs: RoleRequestOption[];
+  services: RoleRequestOption[];
+  permission_types: RoleRequestOption[];
+  target_services: RoleRequestOption[];
+  work_requests: RoleRequestOption[];
+  users: {
+    user_id: string;
+    name: string;
+    iam_user_name: string;
+    mattermost_id: string;
+  }[];
+}
+
+export interface RoleRequestFormData {
+  iam_user_name?: string;
+  env: string;
+  service: string;
+  permission_type: string;
+  target_services: string;
+  start_time?: string;
+  end_time: string;
+  purpose: string;
+  work_request_id?: string;
+}
+
+export interface AdminRoleGrantFormData extends RoleRequestFormData {
+  target_user_id: string;
 }
 
 export interface LoginResponse {
@@ -224,6 +262,38 @@ export const getMe = async () => {
 
 export const refreshToken = async (refreshToken: string) => {
   const response = await api.post('/auth/refresh', { refresh_token: refreshToken });
+  return response.data;
+};
+
+// Role Request APIs (web-based)
+export const getRoleRequestOptions = async (): Promise<RoleRequestOptionsResponse> => {
+  const response = await api.get('/role-requests/options');
+  return response.data;
+};
+
+export const createRoleRequest = async (data: RoleRequestFormData) => {
+  const response = await api.post('/role-requests', data);
+  return response.data;
+};
+
+export const createAdminRoleGrant = async (data: AdminRoleGrantFormData) => {
+  const response = await api.post('/role-requests/admin', data);
+  return response.data;
+};
+
+// Ticket approval/rejection APIs (Admin)
+export const approveTicket = async (requestId: string) => {
+  const response = await api.post(`/tickets/${requestId}/approve`);
+  return response.data;
+};
+
+export const rejectTicket = async (requestId: string, reason?: string) => {
+  const response = await api.post(`/tickets/${requestId}/reject`, { reason });
+  return response.data;
+};
+
+export const revokeTicket = async (requestId: string) => {
+  const response = await api.post(`/tickets/${requestId}/revoke`);
   return response.data;
 };
 

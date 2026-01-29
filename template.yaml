@@ -108,6 +108,26 @@ Resources:
         - Key: Owner
           Value: N1104365
 
+  # TeamMembers DynamoDB Table (IAM 권한 요청 대상 팀원)
+  TeamMembersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: TeamMembers
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+      Tags:
+        - Key: Env
+          Value: infra
+        - Key: Service
+          Value: infra
+        - Key: Owner
+          Value: N1104365
+
   # Users DynamoDB Table
   UsersTable:
     Type: AWS::DynamoDB::Table
@@ -383,7 +403,7 @@ Resources:
       FunctionName: dashboard-api
       CodeUri: src/
       Handler: handlers.dashboard_api.lambda_handler
-      Timeout: 30
+      Timeout: 60
       Environment:
         Variables:
           ROLE_REQUESTS_TABLE: RoleRequests
@@ -391,9 +411,13 @@ Resources:
           WORK_REQUESTS_TABLE: WorkRequests
           API_KEYS_TABLE: ApiKeys
           USERS_TABLE: Users
+          TEAM_MEMBERS_TABLE: TeamMembers
           JWT_SECRET: !Ref JwtSecret
           SKONS_LOGIN_URL: !Ref SkonsLoginUrl
           API_URL: !Ref CallbackBaseUrl
+          APPROVAL_CHANNEL_ID: !Ref ApprovalChannelId
+          SCHEDULER_ROLE_ARN: !GetAtt SchedulerExecutionRole.Arn
+          ROLE_MANAGER_LAMBDA_ARN: !GetAtt RoleManagerFunction.Arn
       Policies:
         - DynamoDBCrudPolicy:
             TableName: RoleRequests
@@ -405,6 +429,31 @@ Resources:
             TableName: WorkRequests
         - DynamoDBCrudPolicy:
             TableName: Users
+        - DynamoDBReadPolicy:
+            TableName: TeamMembers
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - iam:GetUser
+                - iam:CreateRole
+                - iam:DeleteRole
+                - iam:CreatePolicy
+                - iam:DeletePolicy
+                - iam:AttachRolePolicy
+                - iam:DetachRolePolicy
+                - iam:TagRole
+                - iam:GetRole
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - scheduler:CreateSchedule
+                - scheduler:DeleteSchedule
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource: !GetAtt SchedulerExecutionRole.Arn
       Events:
         GetTickets:
           Type: Api
@@ -424,6 +473,24 @@ Resources:
             RestApiId: !Ref RoleRequestApi
             Path: /api/tickets/{request_id}
             Method: PATCH
+        PostTicketApprove:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/tickets/{request_id}/approve
+            Method: POST
+        PostTicketReject:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/tickets/{request_id}/reject
+            Method: POST
+        PostTicketRevoke:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/tickets/{request_id}/revoke
+            Method: POST
         GetActivities:
           Type: Api
           Properties:
@@ -447,6 +514,24 @@ Resources:
           Properties:
             RestApiId: !Ref RoleRequestApi
             Path: /api/tickets/{request_id}
+            Method: OPTIONS
+        OptionsTicketApprove:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/tickets/{request_id}/approve
+            Method: OPTIONS
+        OptionsTicketReject:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/tickets/{request_id}/reject
+            Method: OPTIONS
+        OptionsTicketRevoke:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/tickets/{request_id}/revoke
             Method: OPTIONS
         OptionsActivities:
           Type: Api
@@ -609,6 +694,43 @@ Resources:
           Properties:
             RestApiId: !Ref RoleRequestApi
             Path: /api/users
+            Method: OPTIONS
+        # Role Request endpoints (web-based)
+        GetRoleRequestOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/role-requests/options
+            Method: GET
+        OptionsRoleRequestOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/role-requests/options
+            Method: OPTIONS
+        PostRoleRequests:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/role-requests
+            Method: POST
+        OptionsRoleRequests:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/role-requests
+            Method: OPTIONS
+        PostRoleRequestsAdmin:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/role-requests/admin
+            Method: POST
+        OptionsRoleRequestsAdmin:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/role-requests/admin
             Method: OPTIONS
       Tags:
         Env: prod

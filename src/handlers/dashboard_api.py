@@ -14,8 +14,15 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List
 from boto3.dynamodb.conditions import Key, Attr
 
-from models import VALID_SERVICES, SERVICE_DISPLAY_NAMES
-from services.mattermost_client import MattermostClient, Attachment, create_work_request_notification
+from models import (
+    VALID_SERVICES,
+    SERVICE_DISPLAY_NAMES,
+    VALID_ENVS,
+    RoleRequest,
+    RequestStatus,
+)
+from services.mattermost_client import MattermostClient, Attachment, create_work_request_notification, create_approval_message
+from services.request_validator import RequestValidator
 
 
 # Korea Standard Time (UTC+9)
@@ -28,9 +35,12 @@ activity_logs_table = dynamodb.Table(os.environ.get('ACTIVITY_LOGS_TABLE', 'Acti
 work_requests_table = dynamodb.Table(os.environ.get('WORK_REQUESTS_TABLE', 'WorkRequests'))
 api_keys_table = dynamodb.Table(os.environ.get('API_KEYS_TABLE', 'ApiKeys'))
 users_table = dynamodb.Table(os.environ.get('USERS_TABLE', 'Users'))
+team_members_table = dynamodb.Table(os.environ.get('TEAM_MEMBERS_TABLE', 'TeamMembers'))
 
 # Mattermost
 REQUEST_CHANNEL_ID = os.environ.get('REQUEST_CHANNEL_ID', '')
+APPROVAL_CHANNEL_ID = os.environ.get('APPROVAL_CHANNEL_ID', '')
+API_URL = os.environ.get('API_URL', '')
 
 # JWT Configuration
 JWT_SECRET = os.environ.get('JWT_SECRET', 'your-super-secret-jwt-key-change-this')
@@ -337,6 +347,32 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # User management endpoints
         elif path == '/api/users' and http_method == 'GET':
             return get_users(event, query_params)
+
+        # Role Request endpoints (web-based)
+        elif path == '/api/role-requests/options' and http_method == 'GET':
+            return get_role_request_options(event)
+
+        elif path == '/api/role-requests/admin' and http_method == 'POST':
+            body = json.loads(event.get('body', '{}'))
+            return create_admin_role_grant(event, body)
+
+        elif path == '/api/role-requests' and http_method == 'POST':
+            body = json.loads(event.get('body', '{}'))
+            return create_role_request(event, body)
+
+        # Ticket approval/rejection endpoints (Admin)
+        elif path.startswith('/api/tickets/') and path.endswith('/approve') and http_method == 'POST':
+            request_id = path.split('/')[3]
+            return approve_ticket(event, request_id)
+
+        elif path.startswith('/api/tickets/') and path.endswith('/reject') and http_method == 'POST':
+            request_id = path.split('/')[3]
+            body = json.loads(event.get('body', '{}'))
+            return reject_ticket(event, request_id, body)
+
+        elif path.startswith('/api/tickets/') and path.endswith('/revoke') and http_method == 'POST':
+            request_id = path.split('/')[3]
+            return revoke_ticket(event, request_id)
 
         else:
             return response(404, {'error': '요청한 리소스를 찾을 수 없습니다'})
@@ -1260,6 +1296,951 @@ def get_users(event: Dict[str, Any], query_params: Dict[str, str]) -> Dict[str, 
     except Exception as e:
         print(f"[get_users] Error: {e}")
         return response(500, {'error': str(e)})
+
+
+# ========== Role Request Endpoints (Web-based) ==========
+
+def get_role_request_options(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    GET /api/role-requests/options
+    Get form options for role request (env, service, permission_type, target_services, work_requests)
+    """
+    # Check authentication
+    user = get_current_user(event)
+    if not user:
+        return response(401, {'error': '인증이 필요합니다'})
+
+    # Permission type options
+    permission_types = [
+        {'value': 'read_only', 'label': '조회만 (Read Only)'},
+        {'value': 'read_update', 'label': '조회 + 수정 (Read + Update)'},
+        {'value': 'read_update_create', 'label': '조회 + 수정 + 생성'},
+        {'value': 'full', 'label': '전체 (Full - 삭제 포함)'},
+    ]
+
+    # Target service options
+    target_services = [
+        {'value': 'all', 'label': '전체 (EC2+SSM, RDS, Lambda, S3, EB)'},
+        {'value': 'ec2', 'label': 'EC2만 (SSM 접속 포함)'},
+        {'value': 'rds', 'label': 'RDS만'},
+        {'value': 'lambda', 'label': 'Lambda만'},
+        {'value': 's3', 'label': 'S3만'},
+        {'value': 'elasticbeanstalk', 'label': 'ElasticBeanstalk만'},
+    ]
+
+    # Environment options
+    envs = [{'value': env, 'label': env} for env in VALID_ENVS]
+
+    # Service options
+    services = [
+        {
+            'value': svc,
+            'label': f"{svc} ({SERVICE_DISPLAY_NAMES.get(svc, svc)})" if SERVICE_DISPLAY_NAMES.get(svc) else svc
+        }
+        for svc in VALID_SERVICES
+    ]
+
+    # Get active work requests for dropdown
+    work_requests = []
+    try:
+        result = work_requests_table.scan(Limit=50)
+        items = result.get('Items', [])
+        active_items = [
+            item for item in items
+            if item.get('status') in ['pending', 'in_progress']
+        ]
+        active_items.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+
+        for item in active_items[:20]:
+            service_display = item.get('service_display_name', item.get('service_name', ''))
+            description = item.get('description', '')[:30]
+            requester = item.get('requester_name', '')
+            work_requests.append({
+                'value': item.get('request_id', ''),
+                'label': f"[{service_display}] {description}... ({requester})",
+            })
+    except Exception as e:
+        print(f"[get_role_request_options] Error fetching work requests: {e}")
+
+    # Get team members list from TeamMembers table
+    users_list = []
+    try:
+        result = team_members_table.scan()
+        items = result.get('Items', [])
+        for item in items:
+            users_list.append({
+                'user_id': item.get('user_id'),
+                'name': item.get('name'),
+                'iam_user_name': item.get('iam_user_name', ''),
+                'mattermost_id': item.get('mattermost_id', ''),
+            })
+        users_list.sort(key=lambda x: x.get('name', ''))
+    except Exception as e:
+        print(f"[get_role_request_options] Error fetching team members: {e}")
+
+    return response(200, {
+        'envs': envs,
+        'services': services,
+        'permission_types': permission_types,
+        'target_services': target_services,
+        'work_requests': work_requests,
+        'users': users_list,
+    })
+
+
+def create_role_request(event: Dict[str, Any], body: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    POST /api/role-requests
+    Create a new role request (normal user)
+    """
+    # Check authentication
+    user = get_current_user(event)
+    if not user:
+        return response(401, {'error': '인증이 필요합니다'})
+
+    # Extract fields
+    iam_user_name = body.get('iam_user_name', '').strip()
+    env = body.get('env', '')
+    service = body.get('service', '')
+    permission_type = body.get('permission_type', 'read_update')
+    target_services = body.get('target_services', 'all')
+    start_time_str = body.get('start_time', '').strip()
+    end_time_str = body.get('end_time', '').strip()
+    purpose = body.get('purpose', '').strip()
+    work_request_id = body.get('work_request_id', '').strip() or None
+
+    # If iam_user_name is not provided, use user's iam_user_name
+    if not iam_user_name:
+        iam_user_name = user.get('iam_user_name', '')
+        if not iam_user_name:
+            return response(400, {'error': 'IAM 사용자명이 필요합니다. 관리자에게 문의하세요.'})
+
+    # Validate required fields
+    if not env:
+        return response(400, {'error': 'Environment를 선택해주세요'})
+    if not service:
+        return response(400, {'error': 'Service를 선택해주세요'})
+    if not end_time_str:
+        return response(400, {'error': '종료 시간을 입력해주세요'})
+    if not purpose:
+        return response(400, {'error': '목적을 입력해주세요'})
+
+    # Parse times
+    now_kst = datetime.now(KST)
+
+    try:
+        if start_time_str:
+            start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+            if start_time.tzinfo:
+                start_time = start_time.replace(tzinfo=None)
+        else:
+            start_time = datetime(now_kst.year, now_kst.month, now_kst.day, now_kst.hour, now_kst.minute)
+
+        end_time = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
+        if end_time.tzinfo:
+            end_time = end_time.replace(tzinfo=None)
+    except ValueError as e:
+        return response(400, {'error': f'시간 형식이 올바르지 않습니다: {str(e)}'})
+
+    # Validate time range
+    if end_time <= start_time:
+        return response(400, {'error': '종료 시간은 시작 시간보다 이후여야 합니다'})
+
+    # Validate using RequestValidator
+    validator = RequestValidator()
+    validation_result = validator.validate(
+        iam_user_name=iam_user_name,
+        env=env,
+        service=service,
+        start_time=start_time,
+        end_time=end_time,
+        purpose=purpose,
+    )
+
+    if not validation_result.is_valid:
+        error_messages = ", ".join([e.message for e in validation_result.errors])
+        return response(400, {'error': error_messages})
+
+    # Validate IAM user exists
+    iam_validation = validator.validate_iam_user_exists(iam_user_name)
+    if not iam_validation.is_valid:
+        error_messages = ", ".join([e.message for e in iam_validation.errors])
+        return response(400, {'error': error_messages})
+
+    # Generate request ID
+    request_id = str(uuid.uuid4())
+
+    # Get requester's mattermost_id from TeamMembers table
+    requester_mattermost_id = ''
+    try:
+        # TeamMembers 테이블에서 iam_user_name으로 검색
+        tm_result = team_members_table.scan(
+            FilterExpression=Attr('iam_user_name').eq(iam_user_name)
+        )
+        tm_items = tm_result.get('Items', [])
+        if tm_items:
+            requester_mattermost_id = tm_items[0].get('mattermost_id', '')
+            print(f"[create_role_request] Found mattermost_id: {requester_mattermost_id} for {iam_user_name}")
+    except Exception as e:
+        print(f"[create_role_request] Error fetching mattermost_id: {e}")
+
+    # Create RoleRequest object
+    role_request = RoleRequest(
+        request_id=request_id,
+        requester_mattermost_id=requester_mattermost_id,
+        requester_name=user.get('name', ''),
+        iam_user_name=iam_user_name,
+        env=env,
+        service=service,
+        start_time=start_time,
+        end_time=end_time,
+        purpose=purpose,
+        permission_type=permission_type,
+        target_services=[target_services] if target_services else ['all'],
+        status=RequestStatus.PENDING,
+        work_request_id=work_request_id,
+    )
+
+    # Save to DynamoDB
+    try:
+        role_requests_table.put_item(Item=role_request.to_dict())
+    except Exception as e:
+        print(f"[create_role_request] Error saving: {e}")
+        return response(500, {'error': '요청 저장 중 오류가 발생했습니다'})
+
+    # Send to Mattermost approval channel
+    try:
+        if APPROVAL_CHANNEL_ID:
+            mattermost = MattermostClient()
+            callback_url = f"{API_URL}/interactive" if API_URL else ""
+
+            attachment = create_approval_message(
+                request_id=request_id,
+                requester_name=user.get('name', ''),
+                iam_user_name=iam_user_name,
+                env=env,
+                service=service,
+                start_time=start_time.strftime('%Y-%m-%d %H:%M'),
+                end_time=end_time.strftime('%Y-%m-%d %H:%M'),
+                purpose=purpose,
+                callback_url=callback_url,
+                permission_type=permission_type,
+                target_services=target_services,
+            )
+
+            post_response = mattermost.send_interactive_message(
+                channel_id=APPROVAL_CHANNEL_ID,
+                text="📋 새로운 권한 요청이 도착했습니다. (웹)",
+                attachments=[attachment],
+            )
+
+            # Update post_id
+            if 'id' in post_response:
+                role_requests_table.update_item(
+                    Key={'request_id': request_id},
+                    UpdateExpression='SET post_id = :post_id',
+                    ExpressionAttributeValues={':post_id': post_response['id']}
+                )
+
+            print(f"[create_role_request] Mattermost notification sent for request: {request_id}")
+
+            # Send DM to requester if mattermost_id exists
+            if requester_mattermost_id:
+                try:
+                    mattermost.send_dm_by_username(username=requester_mattermost_id,
+                        message=f"✅ 권한 요청이 제출되었습니다.\n\n"
+                               f"**요청 ID:** {request_id}\n"
+                               f"**IAM User:** {iam_user_name}\n"
+                               f"**Env:** {env}\n"
+                               f"**Service:** {service}\n"
+                               f"**시작 시간:** {start_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
+                               f"**종료 시간:** {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n\n"
+                               f"담당자 승인 후 알림을 받으실 수 있습니다.",
+                    )
+                except Exception as e:
+                    print(f"[create_role_request] Failed to send DM: {e}")
+    except Exception as e:
+        print(f"[create_role_request] Failed to send Mattermost notification: {e}")
+
+    return response(201, {
+        'request_id': request_id,
+        'status': 'success',
+        'message': '권한 요청이 제출되었습니다. 승인 후 알림을 받으실 수 있습니다.'
+    })
+
+
+def create_admin_role_grant(event: Dict[str, Any], body: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    POST /api/role-requests/admin
+    Create and immediately grant role (admin only)
+    """
+    # Check authentication
+    user = get_current_user(event)
+    if not user:
+        return response(401, {'error': '인증이 필요합니다'})
+
+    # Check admin permission
+    if not user.get('is_admin', False):
+        return response(403, {'error': '관리자 권한이 필요합니다'})
+
+    # Extract fields
+    target_user_id = body.get('target_user_id', '').strip()
+    iam_user_name = body.get('iam_user_name', '').strip()
+    env = body.get('env', '')
+    service = body.get('service', '')
+    permission_type = body.get('permission_type', 'read_update')
+    target_services = body.get('target_services', 'all')
+    start_time_str = body.get('start_time', '').strip()
+    end_time_str = body.get('end_time', '').strip()
+    purpose = body.get('purpose', '').strip()
+    work_request_id = body.get('work_request_id', '').strip() or None
+
+    # Validate required fields
+    if not target_user_id:
+        return response(400, {'error': '대상 사용자를 선택해주세요'})
+    if not env:
+        return response(400, {'error': 'Environment를 선택해주세요'})
+    if not service:
+        return response(400, {'error': 'Service를 선택해주세요'})
+    if not end_time_str:
+        return response(400, {'error': '종료 시간을 입력해주세요'})
+    if not purpose:
+        return response(400, {'error': '목적을 입력해주세요'})
+
+    # Get target user info from TeamMembers table
+    try:
+        result = team_members_table.get_item(Key={'user_id': target_user_id})
+        target_user = result.get('Item')
+    except Exception as e:
+        print(f"[create_admin_role_grant] Error fetching target user: {e}")
+        return response(500, {'error': '대상 사용자 조회 중 오류가 발생했습니다'})
+
+    if not target_user:
+        return response(404, {'error': '대상 사용자를 찾을 수 없습니다 (TeamMembers 테이블에 없음)'})
+
+    # Use target user's iam_user_name if not provided
+    if not iam_user_name:
+        iam_user_name = target_user.get('iam_user_name', '')
+        if not iam_user_name:
+            return response(400, {'error': '대상 사용자의 IAM 사용자명이 설정되지 않았습니다'})
+
+    target_mattermost_id = target_user.get('mattermost_id', '')
+
+    # Parse times
+    now_kst = datetime.now(KST)
+
+    try:
+        if start_time_str:
+            start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+            if start_time.tzinfo:
+                start_time = start_time.replace(tzinfo=None)
+        else:
+            start_time = datetime(now_kst.year, now_kst.month, now_kst.day, now_kst.hour, now_kst.minute)
+
+        end_time = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
+        if end_time.tzinfo:
+            end_time = end_time.replace(tzinfo=None)
+    except ValueError as e:
+        return response(400, {'error': f'시간 형식이 올바르지 않습니다: {str(e)}'})
+
+    # Validate time range
+    if end_time <= start_time:
+        return response(400, {'error': '종료 시간은 시작 시간보다 이후여야 합니다'})
+
+    # Validate using RequestValidator
+    validator = RequestValidator()
+    validation_result = validator.validate(
+        iam_user_name=iam_user_name,
+        env=env,
+        service=service,
+        start_time=start_time,
+        end_time=end_time,
+        purpose=purpose,
+        is_master_request=True,
+    )
+
+    if not validation_result.is_valid:
+        error_messages = ", ".join([e.message for e in validation_result.errors])
+        return response(400, {'error': error_messages})
+
+    # Validate IAM user exists
+    iam_validation = validator.validate_iam_user_exists(iam_user_name)
+    if not iam_validation.is_valid:
+        error_messages = ", ".join([e.message for e in iam_validation.errors])
+        return response(400, {'error': error_messages})
+
+    # Generate request ID
+    request_id = str(uuid.uuid4())
+
+    # Create RoleRequest object
+    role_request = RoleRequest(
+        request_id=request_id,
+        requester_mattermost_id=target_mattermost_id,
+        requester_name=target_user.get('name', ''),
+        iam_user_name=iam_user_name,
+        env=env,
+        service=service,
+        start_time=start_time,
+        end_time=end_time,
+        purpose=purpose,
+        permission_type=permission_type,
+        target_services=[target_services] if target_services else ['all'],
+        status=RequestStatus.APPROVED,
+        approver_id=user.get('user_id'),
+        is_master_request=True,
+        work_request_id=work_request_id,
+    )
+
+    # Create IAM Role immediately
+    try:
+        from services.role_manager import RoleManager
+        from services.scheduler import Scheduler
+
+        role_manager = RoleManager()
+        scheduler = Scheduler()
+
+        # Create role
+        role_info = role_manager.create_dynamic_role(role_request)
+        role_request.role_arn = role_info.get('role_arn')
+        role_request.policy_arn = role_info.get('policy_arn')
+        role_request.status = RequestStatus.ACTIVE
+
+        # Schedule deletion
+        scheduler.create_end_schedule(role_request)
+
+        # Save to DynamoDB
+        role_requests_table.put_item(Item=role_request.to_dict())
+
+        # Send DM to target user if mattermost_id exists
+        if target_mattermost_id:
+            try:
+                mattermost = MattermostClient()
+                role_name = role_request.role_arn.split("/")[-1]
+
+                # Permission type display names
+                perm_names = {
+                    "read_only": "조회만",
+                    "read_update": "조회+수정",
+                    "read_update_create": "조회+수정+생성",
+                    "full": "전체(삭제포함)",
+                }
+                perm_display = perm_names.get(permission_type, permission_type)
+
+                # Target service display names
+                target_names = {
+                    "all": "전체",
+                    "ec2": "EC2",
+                    "rds": "RDS",
+                    "lambda": "Lambda",
+                    "s3": "S3",
+                    "elasticbeanstalk": "ElasticBeanstalk",
+                }
+                target_display = target_names.get(target_services, target_services)
+
+                mattermost.send_dm_by_username(username=target_mattermost_id,
+                    message=f"✅ AWS Role이 즉시 생성되었습니다! (관리자 즉시 부여)\n\n"
+                           f"**요청 ID:** {request_id}\n"
+                           f"**Role ARN:** {role_request.role_arn}\n\n"
+                           f"---\n"
+                           f"## 🖥️ Console에서 사용하기 (Switch Role)\n"
+                           f"1. AWS Console 우측 상단 → Switch Role\n"
+                           f"2. Account: `680877507363`\n"
+                           f"3. Role: `{role_name}`\n\n"
+                           f"---\n"
+                           f"## 💻 CLI에서 사용하기\n\n"
+                           f"**방법 1: 환경변수 설정 (권장)**\n"
+                           f"```bash\n"
+                           f"# 1. assume-role 실행\n"
+                           f"CREDS=$(aws sts assume-role --role-arn {role_request.role_arn} --role-session-name {iam_user_name}-session --query 'Credentials' --output json)\n\n"
+                           f"# 2. 환경변수 설정\n"
+                           f"export AWS_ACCESS_KEY_ID=$(echo $CREDS | jq -r '.AccessKeyId')\n"
+                           f"export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | jq -r '.SecretAccessKey')\n"
+                           f"export AWS_SESSION_TOKEN=$(echo $CREDS | jq -r '.SessionToken')\n\n"
+                           f"# 3. 확인\n"
+                           f"aws sts get-caller-identity\n"
+                           f"```\n\n"
+                           f"---\n"
+                           f"**시작 시간:** {start_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
+                           f"**종료 시간:** {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
+                           f"**Env:** {env} | **Service:** {service}\n"
+                           f"**권한 유형:** {perm_display} | **대상 서비스:** {target_display}",
+                )
+            except Exception as e:
+                print(f"[create_admin_role_grant] Failed to send DM: {e}")
+
+        return response(201, {
+            'request_id': request_id,
+            'role_arn': role_request.role_arn,
+            'role_name': role_info.get('role_name'),
+            'status': 'success',
+            'message': 'AWS Role이 즉시 생성되었습니다'
+        })
+
+    except Exception as e:
+        print(f"[create_admin_role_grant] Error creating role: {e}")
+        # Save the request with error status
+        role_request.status = RequestStatus.ERROR
+        try:
+            role_requests_table.put_item(Item=role_request.to_dict())
+        except Exception as save_error:
+            print(f"[create_admin_role_grant] Error saving error state: {save_error}")
+
+        return response(500, {'error': f'Role 생성 중 오류가 발생했습니다: {str(e)}'})
+
+
+# ========== Ticket Approval/Rejection Endpoints (Admin) ==========
+
+def get_mattermost_id_for_ticket(ticket: Dict[str, Any]) -> str:
+    """
+    Get mattermost_id for a ticket.
+    First tries ticket's requester_mattermost_id, then looks up in TeamMembers by iam_user_name.
+    """
+    mattermost_id = ticket.get('requester_mattermost_id', '')
+    if mattermost_id:
+        return mattermost_id
+
+    # Fallback: look up in TeamMembers by iam_user_name
+    iam_user_name = ticket.get('iam_user_name', '')
+    if iam_user_name:
+        try:
+            tm_result = team_members_table.scan(
+                FilterExpression=Attr('iam_user_name').eq(iam_user_name)
+            )
+            tm_items = tm_result.get('Items', [])
+            if tm_items:
+                mattermost_id = tm_items[0].get('mattermost_id', '')
+                print(f"[get_mattermost_id_for_ticket] Found mattermost_id: {mattermost_id} for {iam_user_name}")
+        except Exception as e:
+            print(f"[get_mattermost_id_for_ticket] Error: {e}")
+
+    return mattermost_id
+
+
+def approve_ticket(event: Dict[str, Any], request_id: str) -> Dict[str, Any]:
+    """
+    POST /api/tickets/{request_id}/approve
+    Approve a pending ticket (Admin only)
+    """
+    # Check authentication
+    user = get_current_user(event)
+    if not user:
+        return response(401, {'error': '인증이 필요합니다'})
+
+    # Check admin permission
+    if not user.get('is_admin', False):
+        return response(403, {'error': '관리자 권한이 필요합니다'})
+
+    # Get ticket
+    try:
+        result = role_requests_table.get_item(Key={'request_id': request_id})
+        ticket = result.get('Item')
+    except Exception as e:
+        print(f"[approve_ticket] Error fetching ticket: {e}")
+        return response(500, {'error': '서버 오류가 발생했습니다'})
+
+    if not ticket:
+        return response(404, {'error': '티켓을 찾을 수 없습니다'})
+
+    # Check status
+    if ticket.get('status') != 'pending':
+        return response(400, {'error': f'현재 상태({ticket.get("status")})에서는 승인할 수 없습니다'})
+
+    # Parse times
+    now_kst = datetime.now(KST)
+
+    try:
+        start_time_str = ticket.get('start_time', '')
+        end_time_str = ticket.get('end_time', '')
+
+        start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00')) if start_time_str else now_kst
+        end_time = datetime.fromisoformat(end_time_str.replace('Z', '+00:00')) if end_time_str else None
+
+        if start_time.tzinfo:
+            start_time = start_time.replace(tzinfo=None)
+        if end_time and end_time.tzinfo:
+            end_time = end_time.replace(tzinfo=None)
+    except Exception as e:
+        print(f"[approve_ticket] Error parsing times: {e}")
+        return response(500, {'error': '시간 파싱 중 오류가 발생했습니다'})
+
+    # Check if end time is in the past
+    now_naive = datetime(now_kst.year, now_kst.month, now_kst.day, now_kst.hour, now_kst.minute, now_kst.second)
+    if end_time and end_time <= now_naive:
+        return response(400, {'error': '종료 시간이 이미 지났습니다. 새로운 요청을 해주세요.'})
+
+    # Create RoleRequest object for RoleManager
+    role_request = RoleRequest(
+        request_id=request_id,
+        requester_mattermost_id=ticket.get('requester_mattermost_id', ''),
+        requester_name=ticket.get('requester_name', ''),
+        iam_user_name=ticket.get('iam_user_name', ''),
+        env=ticket.get('env', ''),
+        service=ticket.get('service', ''),
+        start_time=start_time,
+        end_time=end_time,
+        purpose=ticket.get('purpose', ''),
+        permission_type=ticket.get('permission_type', 'read_update'),
+        target_services=ticket.get('target_services', ['all']),
+        status=RequestStatus.APPROVED,
+        work_request_id=ticket.get('work_request_id'),
+    )
+
+    # Check if start time is in the past (create role immediately)
+    if start_time <= now_naive:
+        try:
+            from services.role_manager import RoleManager
+            from services.scheduler import Scheduler
+
+            role_manager = RoleManager()
+            scheduler = Scheduler()
+
+            # Create role
+            role_info = role_manager.create_dynamic_role(role_request)
+
+            # Update status to active
+            role_requests_table.update_item(
+                Key={'request_id': request_id},
+                UpdateExpression='SET #status = :status, approver_id = :approver_id, role_arn = :role_arn, policy_arn = :policy_arn, updated_at = :updated_at',
+                ExpressionAttributeNames={'#status': 'status'},
+                ExpressionAttributeValues={
+                    ':status': 'active',
+                    ':approver_id': user.get('user_id'),
+                    ':role_arn': role_info.get('role_arn'),
+                    ':policy_arn': role_info.get('policy_arn'),
+                    ':updated_at': now_kst.isoformat()
+                }
+            )
+
+            # Schedule deletion
+            role_request.role_arn = role_info.get('role_arn')
+            role_request.policy_arn = role_info.get('policy_arn')
+            scheduler.create_end_schedule(role_request)
+
+            # Update linked work request status to in_progress if exists
+            if ticket.get('work_request_id'):
+                try:
+                    wr_result = work_requests_table.get_item(Key={'request_id': ticket['work_request_id']})
+                    work_request = wr_result.get('Item')
+                    if work_request and work_request.get('status') == 'pending':
+                        work_requests_table.update_item(
+                            Key={'request_id': ticket['work_request_id']},
+                            UpdateExpression='SET #status = :status, updated_at = :updated_at',
+                            ExpressionAttributeNames={'#status': 'status'},
+                            ExpressionAttributeValues={
+                                ':status': 'in_progress',
+                                ':updated_at': now_kst.isoformat()
+                            }
+                        )
+                except Exception as e:
+                    print(f"[approve_ticket] Error updating work request: {e}")
+
+            # Send DM to requester
+            requester_mattermost_id = get_mattermost_id_for_ticket(ticket)
+            if requester_mattermost_id:
+                try:
+                    mattermost = MattermostClient()
+                    role_name = role_info['role_arn'].split("/")[-1]
+
+                    perm_names = {
+                        "read_only": "조회만",
+                        "read_update": "조회+수정",
+                        "read_update_create": "조회+수정+생성",
+                        "full": "전체(삭제포함)",
+                    }
+                    perm_display = perm_names.get(ticket.get('permission_type', 'read_update'), ticket.get('permission_type', 'read_update'))
+
+                    mattermost.send_dm_by_username(username=requester_mattermost_id,
+                        message=f"✅ AWS Role이 생성되었습니다! (웹 승인)\n\n"
+                               f"**요청 ID:** {request_id}\n"
+                               f"**Role ARN:** {role_info['role_arn']}\n\n"
+                               f"---\n"
+                               f"## 🖥️ Console에서 사용하기 (Switch Role)\n"
+                               f"1. AWS Console 우측 상단 → Switch Role\n"
+                               f"2. Account: `680877507363`\n"
+                               f"3. Role: `{role_name}`\n\n"
+                               f"---\n"
+                               f"**시작 시간:** {start_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
+                               f"**종료 시간:** {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
+                               f"**Env:** {ticket.get('env')} | **Service:** {ticket.get('service')}\n"
+                               f"**권한 유형:** {perm_display}",
+                    )
+                except Exception as e:
+                    print(f"[approve_ticket] Failed to send DM: {e}")
+
+            # Send notification to approval channel
+            if APPROVAL_CHANNEL_ID:
+                try:
+                    mattermost = MattermostClient()
+                    mattermost.send_to_channel(
+                        channel_id=APPROVAL_CHANNEL_ID,
+                        message=f"✅ **[웹 승인]** 권한이 승인되었습니다.\n\n"
+                               f"**요청 ID:** {request_id}\n"
+                               f"**요청자:** {ticket.get('requester_name', '')} ({ticket.get('iam_user_name', '')})\n"
+                               f"**승인자:** {user.get('name', '')}\n"
+                               f"**Env:** {ticket.get('env')} | **Service:** {ticket.get('service')}\n"
+                               f"**권한 유형:** {ticket.get('permission_type', 'read_update')}\n"
+                               f"**기간:** {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')} (KST)",
+                    )
+                except Exception as e:
+                    print(f"[approve_ticket] Failed to send channel notification: {e}")
+
+            return response(200, {
+                'request_id': request_id,
+                'status': 'active',
+                'role_arn': role_info.get('role_arn'),
+                'message': '승인 완료 - Role이 즉시 생성되었습니다'
+            })
+
+        except Exception as e:
+            print(f"[approve_ticket] Error creating role: {e}")
+            return response(500, {'error': f'Role 생성 중 오류가 발생했습니다: {str(e)}'})
+
+    else:
+        # Start time is in the future, create schedules
+        try:
+            from services.scheduler import Scheduler
+
+            scheduler = Scheduler()
+
+            # Update status to approved
+            role_requests_table.update_item(
+                Key={'request_id': request_id},
+                UpdateExpression='SET #status = :status, approver_id = :approver_id, updated_at = :updated_at',
+                ExpressionAttributeNames={'#status': 'status'},
+                ExpressionAttributeValues={
+                    ':status': 'approved',
+                    ':approver_id': user.get('user_id'),
+                    ':updated_at': now_kst.isoformat()
+                }
+            )
+
+            # Schedule start and end
+            scheduler.create_start_schedule(role_request)
+            scheduler.create_end_schedule(role_request)
+
+            # Send DM to requester
+            requester_mattermost_id = get_mattermost_id_for_ticket(ticket)
+            if requester_mattermost_id:
+                try:
+                    mattermost = MattermostClient()
+                    mattermost.send_dm_by_username(username=requester_mattermost_id,
+                        message=f"✅ 권한 요청이 승인되었습니다. (웹 승인)\n\n"
+                               f"**요청 ID:** {request_id}\n"
+                               f"**시작 시간:** {start_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
+                               f"**종료 시간:** {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n\n"
+                               f"시작 시간에 Role이 자동으로 생성됩니다.",
+                    )
+                except Exception as e:
+                    print(f"[approve_ticket] Failed to send DM: {e}")
+
+            # Send notification to approval channel
+            if APPROVAL_CHANNEL_ID:
+                try:
+                    mattermost = MattermostClient()
+                    mattermost.send_to_channel(
+                        channel_id=APPROVAL_CHANNEL_ID,
+                        message=f"✅ **[웹 승인]** 권한이 승인되었습니다. (예약)\n\n"
+                               f"**요청 ID:** {request_id}\n"
+                               f"**요청자:** {ticket.get('requester_name', '')} ({ticket.get('iam_user_name', '')})\n"
+                               f"**승인자:** {user.get('name', '')}\n"
+                               f"**Env:** {ticket.get('env')} | **Service:** {ticket.get('service')}\n"
+                               f"**기간:** {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
+                               f"시작 시간에 Role이 자동 생성됩니다.",
+                    )
+                except Exception as e:
+                    print(f"[approve_ticket] Failed to send channel notification: {e}")
+
+            return response(200, {
+                'request_id': request_id,
+                'status': 'approved',
+                'message': '승인 완료 - 시작 시간에 Role이 생성됩니다'
+            })
+
+        except Exception as e:
+            print(f"[approve_ticket] Error creating schedules: {e}")
+            return response(500, {'error': f'스케줄 생성 중 오류가 발생했습니다: {str(e)}'})
+
+
+def reject_ticket(event: Dict[str, Any], request_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    POST /api/tickets/{request_id}/reject
+    Reject a pending ticket (Admin only)
+    """
+    # Check authentication
+    user = get_current_user(event)
+    if not user:
+        return response(401, {'error': '인증이 필요합니다'})
+
+    # Check admin permission
+    if not user.get('is_admin', False):
+        return response(403, {'error': '관리자 권한이 필요합니다'})
+
+    rejection_reason = body.get('reason', '관리자에 의해 반려됨').strip()
+
+    # Get ticket
+    try:
+        result = role_requests_table.get_item(Key={'request_id': request_id})
+        ticket = result.get('Item')
+    except Exception as e:
+        print(f"[reject_ticket] Error fetching ticket: {e}")
+        return response(500, {'error': '서버 오류가 발생했습니다'})
+
+    if not ticket:
+        return response(404, {'error': '티켓을 찾을 수 없습니다'})
+
+    # Check status
+    if ticket.get('status') != 'pending':
+        return response(400, {'error': f'현재 상태({ticket.get("status")})에서는 반려할 수 없습니다'})
+
+    # Update status
+    now_kst = datetime.now(KST)
+    try:
+        role_requests_table.update_item(
+            Key={'request_id': request_id},
+            UpdateExpression='SET #status = :status, approver_id = :approver_id, rejection_reason = :rejection_reason, updated_at = :updated_at',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'rejected',
+                ':approver_id': user.get('user_id'),
+                ':rejection_reason': rejection_reason,
+                ':updated_at': now_kst.isoformat()
+            }
+        )
+    except Exception as e:
+        print(f"[reject_ticket] Error updating ticket: {e}")
+        return response(500, {'error': '상태 변경 중 오류가 발생했습니다'})
+
+    # Send DM to requester
+    requester_mattermost_id = get_mattermost_id_for_ticket(ticket)
+    if requester_mattermost_id:
+        try:
+            mattermost = MattermostClient()
+            mattermost.send_dm_by_username(username=requester_mattermost_id,
+                message=f"❌ 권한 요청이 반려되었습니다. (웹)\n\n"
+                       f"**요청 ID:** {request_id}\n"
+                       f"**반려 사유:** {rejection_reason}",
+            )
+        except Exception as e:
+            print(f"[reject_ticket] Failed to send DM: {e}")
+
+    # Send notification to approval channel
+    if APPROVAL_CHANNEL_ID:
+        try:
+            mattermost = MattermostClient()
+            mattermost.send_to_channel(
+                channel_id=APPROVAL_CHANNEL_ID,
+                message=f"❌ **[웹 반려]** 권한 요청이 반려되었습니다.\n\n"
+                       f"**요청 ID:** {request_id}\n"
+                       f"**요청자:** {ticket.get('requester_name', '')} ({ticket.get('iam_user_name', '')})\n"
+                       f"**반려자:** {user.get('name', '')}\n"
+                       f"**반려 사유:** {rejection_reason}",
+            )
+        except Exception as e:
+            print(f"[reject_ticket] Failed to send channel notification: {e}")
+
+    return response(200, {
+        'request_id': request_id,
+        'status': 'rejected',
+        'message': '반려 처리되었습니다'
+    })
+
+
+def revoke_ticket(event: Dict[str, Any], request_id: str) -> Dict[str, Any]:
+    """
+    POST /api/tickets/{request_id}/revoke
+    Revoke an active role (Admin only)
+    """
+    # Check authentication
+    user = get_current_user(event)
+    if not user:
+        return response(401, {'error': '인증이 필요합니다'})
+
+    # Check admin permission
+    if not user.get('is_admin', False):
+        return response(403, {'error': '관리자 권한이 필요합니다'})
+
+    # Get ticket
+    try:
+        result = role_requests_table.get_item(Key={'request_id': request_id})
+        ticket = result.get('Item')
+    except Exception as e:
+        print(f"[revoke_ticket] Error fetching ticket: {e}")
+        return response(500, {'error': '서버 오류가 발생했습니다'})
+
+    if not ticket:
+        return response(404, {'error': '티켓을 찾을 수 없습니다'})
+
+    # Check status
+    if ticket.get('status') not in ['active', 'approved']:
+        return response(400, {'error': f'현재 상태({ticket.get("status")})에서는 권한을 회수할 수 없습니다'})
+
+    try:
+        from services.role_manager import RoleManager
+        from services.scheduler import Scheduler
+
+        role_manager = RoleManager()
+        scheduler = Scheduler()
+
+        # Delete role if exists
+        if ticket.get('role_arn') and ticket.get('policy_arn'):
+            role_manager.delete_dynamic_role(ticket['role_arn'], ticket['policy_arn'])
+
+        # Delete schedules
+        scheduler.delete_schedule(f"role-create-{request_id}")
+        scheduler.delete_schedule(f"role-delete-{request_id}")
+
+        # Update status
+        now_kst = datetime.now(KST)
+        role_requests_table.update_item(
+            Key={'request_id': request_id},
+            UpdateExpression='SET #status = :status, approver_id = :approver_id, updated_at = :updated_at',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'revoked',
+                ':approver_id': user.get('user_id'),
+                ':updated_at': now_kst.isoformat()
+            }
+        )
+
+        # Send DM to requester
+        requester_mattermost_id = get_mattermost_id_for_ticket(ticket)
+        if requester_mattermost_id:
+            try:
+                mattermost = MattermostClient()
+                mattermost.send_dm_by_username(username=requester_mattermost_id,
+                    message=f"🔄 AWS Role 권한이 관리자에 의해 회수되었습니다. (웹)\n\n"
+                           f"**요청 ID:** {request_id}\n"
+                           f"**Env:** {ticket.get('env')}\n"
+                           f"**Service:** {ticket.get('service')}\n\n"
+                           f"문의사항이 있으시면 관리자에게 연락해주세요.",
+                )
+            except Exception as e:
+                print(f"[revoke_ticket] Failed to send DM: {e}")
+
+        # Send notification to approval channel
+        if APPROVAL_CHANNEL_ID:
+            try:
+                mattermost = MattermostClient()
+                mattermost.send_to_channel(
+                    channel_id=APPROVAL_CHANNEL_ID,
+                    message=f"🔄 **[웹 회수]** 권한이 회수되었습니다.\n\n"
+                           f"**요청 ID:** {request_id}\n"
+                           f"**대상자:** {ticket.get('requester_name', '')} ({ticket.get('iam_user_name', '')})\n"
+                           f"**회수자:** {user.get('name', '')}\n"
+                           f"**Env:** {ticket.get('env')} | **Service:** {ticket.get('service')}",
+                )
+            except Exception as e:
+                print(f"[revoke_ticket] Failed to send channel notification: {e}")
+
+        return response(200, {
+            'request_id': request_id,
+            'status': 'revoked',
+            'message': '권한이 회수되었습니다'
+        })
+
+    except Exception as e:
+        print(f"[revoke_ticket] Error revoking: {e}")
+        return response(500, {'error': f'권한 회수 중 오류가 발생했습니다: {str(e)}'})
 
 
 def response(status_code: int, body: Dict[str, Any]) -> Dict[str, Any]:

@@ -66,9 +66,29 @@ const Sidebar: React.FC = () => {
         <NavLink to="/work-requests" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
           <span className="nav-text">업무 요청</span>
         </NavLink>
-        <NavLink to="/role-requests" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-          <span className="nav-text">업무 권한 요청</span>
-        </NavLink>
+
+        <div className="nav-group">
+          <div className="nav-group-title">권한 관리</div>
+          <NavLink to="/role-requests" className={({ isActive }) => isActive ? 'nav-item nav-item-sub active' : 'nav-item nav-item-sub'} end>
+            <span className="nav-text">권한 요청 목록</span>
+          </NavLink>
+          <NavLink to="/role-requests/new" className={({ isActive }) => isActive ? 'nav-item nav-item-sub active' : 'nav-item nav-item-sub'}>
+            <span className="nav-text">새 권한 요청</span>
+          </NavLink>
+        </div>
+
+        {user?.is_admin && (
+          <div className="nav-group">
+            <div className="nav-group-title">관리자</div>
+            <NavLink to="/admin/role-grant" className={({ isActive }) => isActive ? 'nav-item nav-item-sub active' : 'nav-item nav-item-sub'}>
+              <span className="nav-text">새 권한 부여</span>
+            </NavLink>
+            <NavLink to="/admin/approval" className={({ isActive }) => isActive ? 'nav-item nav-item-sub active' : 'nav-item nav-item-sub'}>
+              <span className="nav-text">권한 승인/반려</span>
+            </NavLink>
+          </div>
+        )}
+
         <NavLink to="/activities" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
           <span className="nav-text">활동 로그</span>
         </NavLink>

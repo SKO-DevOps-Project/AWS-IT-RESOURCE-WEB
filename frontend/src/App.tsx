@@ -9,6 +9,9 @@ import WorkRequestList from './pages/WorkRequestList';
 import TicketList from './pages/TicketList';
 import TicketDetail from './pages/TicketDetail';
 import ActivityList from './pages/ActivityList';
+import RoleRequestForm from './pages/RoleRequestForm';
+import AdminRoleGrantForm from './pages/AdminRoleGrantForm';
+import AdminTicketApproval from './pages/AdminTicketApproval';
 import './App.css';
 
 function App() {
@@ -28,6 +31,9 @@ function App() {
                       <Route path="/" element={<Dashboard />} />
                       <Route path="/work-requests" element={<WorkRequestList />} />
                       <Route path="/role-requests" element={<TicketList />} />
+                      <Route path="/role-requests/new" element={<RoleRequestForm />} />
+                      <Route path="/admin/role-grant" element={<AdminRoleGrantForm />} />
+                      <Route path="/admin/approval" element={<AdminTicketApproval />} />
                       <Route path="/tickets/:requestId" element={<TicketDetail />} />
                       <Route path="/activities" element={<ActivityList />} />
                     </Routes>

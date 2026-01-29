@@ -111,6 +111,24 @@
   background: #e5e7eb;
 }
 
+.btn-success {
+  background: #10b981;
+  color: #fff;
+}
+
+.btn-success:hover {
+  background: #059669;
+}
+
+.btn-danger {
+  background: #ef4444;
+  color: #fff;
+}
+
+.btn-danger:hover {
+  background: #dc2626;
+}
+
 .btn-small {
   padding: 6px 12px;
   font-size: 13px;
@@ -120,6 +138,75 @@
 
 .btn-small:hover {
   background: #e5e7eb;
+}
+
+/* Action Buttons (승인/반려/회수) */
+.action-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.action-btn {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.action-btn-approve,
+.action-btn-reject,
+.action-btn-revoke {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.action-btn-approve:disabled,
+.action-btn-reject:disabled,
+.action-btn-revoke:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.action-btn-approve {
+  background: #10b981;
+  color: #fff;
+}
+
+.action-btn-approve:hover:not(:disabled) {
+  background: #059669;
+}
+
+.action-btn-reject {
+  background: #ef4444;
+  color: #fff;
+}
+
+.action-btn-reject:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.action-btn-revoke {
+  background: #fff;
+  color: #f59e0b;
+  border: 1px solid #f59e0b;
+}
+
+.action-btn-revoke:hover:not(:disabled) {
+  background: #fffbeb;
 }
 
 /* Table */
@@ -235,6 +322,12 @@
   margin-bottom: 24px;
   padding-bottom: 20px;
   border-bottom: 1px solid #f3f4f6;
+}
+
+.detail-header-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
 }
 
 .ticket-id {
@@ -1454,6 +1547,208 @@ body.modal-open {
   width: 100%;
 }
 
+/* Form Page Styles */
+.form-card {
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  padding: 32px;
+  max-width: 800px;
+}
+
+.form-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-group.full-width {
+  grid-column: 1 / -1;
+}
+
+.form-group label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.form-input,
+.form-select,
+.form-textarea {
+  padding: 12px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 14px;
+  background: #fff;
+  transition: all 0.2s;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.form-input:focus,
+.form-select:focus,
+.form-textarea:focus {
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+}
+
+.form-input:disabled,
+.form-select:disabled,
+.form-textarea:disabled {
+  background: #f3f4f6;
+  cursor: not-allowed;
+}
+
+.form-textarea {
+  resize: vertical;
+  min-height: 100px;
+}
+
+.form-hint {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.form-error {
+  padding: 14px 18px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #dc2626;
+  font-size: 14px;
+}
+
+.form-success {
+  padding: 14px 18px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  color: #16a34a;
+  font-size: 14px;
+}
+
+.form-success .result-info {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #bbf7d0;
+}
+
+.form-success .result-info code {
+  display: block;
+  margin-top: 4px;
+  padding: 10px 12px;
+  background: #dcfce7;
+  border-radius: 6px;
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 20px;
+  border-top: 1px solid #f3f4f6;
+}
+
+/* Result Section (버튼 위 결과 표시) */
+.result-section {
+  margin-bottom: 24px;
+}
+
+.result-success {
+  background: #ecfdf5;
+  border: 1px solid #10b981;
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.result-success h4 {
+  margin: 0 0 12px 0;
+  color: #059669;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.result-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.result-info label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.result-info code {
+  background: #fff;
+  border: 1px solid #d1fae5;
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: monospace;
+  color: #065f46;
+  word-break: break-all;
+}
+
+/* Form Section Grouping */
+.form-section {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.form-section:last-of-type {
+  margin-bottom: 0;
+}
+
+.form-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  margin: 0 0 16px 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.form-section-title::before {
+  content: '';
+  width: 4px;
+  height: 16px;
+  background: #4f46e5;
+  border-radius: 2px;
+}
+
+.form-section .form-row {
+  margin-bottom: 0;
+}
+
+.form-section .form-group {
+  margin-bottom: 0;
+}
+
 @media (max-width: 500px) {
   .accordion-ticket-grid {
     grid-template-columns: 1fr;
@@ -1507,5 +1802,319 @@ body.modal-open {
   .data-table td[data-label="리전"] {
     grid-column: 1 / -1 !important;
     grid-row: auto !important;
+  }
+}
+
+/* Form mobile responsive */
+@media (max-width: 768px) {
+  .form-card {
+    padding: 20px;
+  }
+
+  .form-row {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .form-actions {
+    flex-direction: column;
+  }
+
+  .form-actions .btn {
+    width: 100%;
+  }
+}
+
+/* Admin badge inline */
+.admin-badge-inline {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  background: linear-gradient(135deg, #7c3aed, #5b21b6);
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  margin-left: 10px;
+  vertical-align: middle;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-top: 24px;
+  padding: 16px;
+}
+
+.pagination-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #374151;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  border-color: #4f46e5;
+  color: #4f46e5;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pagination-btn.active {
+  background: #4f46e5;
+  border-color: #4f46e5;
+  color: #fff;
+}
+
+.pagination-info {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0 8px;
+}
+
+/* Accordion Styles */
+.accordion-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.accordion-item {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.accordion-item:hover {
+  border-color: #d1d5db;
+}
+
+.accordion-item.expanded {
+  border-color: #4f46e5;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.1);
+}
+
+.accordion-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  cursor: pointer;
+  background: #fff;
+  transition: background 0.2s;
+}
+
+.accordion-header:hover {
+  background: #f9fafb;
+}
+
+.accordion-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.accordion-toggle {
+  font-size: 10px;
+  color: #9ca3af;
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.accordion-requester {
+  font-weight: 600;
+  color: #111827;
+  min-width: 80px;
+}
+
+.accordion-env {
+  color: #6b7280;
+  font-size: 13px;
+  background: #f3f4f6;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.accordion-permission {
+  color: #4f46e5;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.accordion-date {
+  color: #9ca3af;
+  font-size: 12px;
+  margin-left: auto;
+}
+
+.accordion-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 16px;
+}
+
+.accordion-detail-link {
+  color: #4f46e5;
+  font-size: 13px;
+  text-decoration: none;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.accordion-detail-link:hover {
+  background: #eef2ff;
+}
+
+.accordion-content {
+  padding: 16px 20px 20px;
+  border-top: 1px solid #f3f4f6;
+  background: #fafafa;
+}
+
+.accordion-content-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.accordion-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  padding: 8px 0 16px;
+}
+
+.accordion-detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.accordion-detail-item.full-width {
+  grid-column: 1 / -1;
+}
+
+.accordion-detail-item label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.accordion-detail-item span {
+  font-size: 14px;
+  color: #111827;
+}
+
+.accordion-detail-item code {
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 12px;
+  background: #f3f4f6;
+  padding: 8px 12px;
+  border-radius: 6px;
+  word-break: break-all;
+}
+
+.accordion-work-request {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.accordion-work-request h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  margin: 0 0 12px 0;
+}
+
+.work-request-info {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.work-request-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.work-request-service {
+  background: #4f46e5;
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.work-request-period {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.work-request-requester {
+  font-size: 13px;
+  color: #374151;
+  font-weight: 500;
+}
+
+.work-request-desc {
+  font-size: 14px;
+  color: #374151;
+  line-height: 1.5;
+}
+
+/* Responsive accordion */
+@media (max-width: 768px) {
+  .accordion-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .accordion-header-left {
+    flex-wrap: wrap;
+  }
+
+  .accordion-header-right {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .accordion-date {
+    margin-left: 0;
+    width: 100%;
+    order: 10;
   }
 }

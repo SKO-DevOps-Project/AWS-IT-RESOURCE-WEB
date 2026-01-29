@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { getTicketDetail, getWorkRequests, updateTicketWorkRequest, Ticket, Activity, WorkRequest } from '../api';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
+import { getTicketDetail, getWorkRequests, updateTicketWorkRequest, approveTicket, rejectTicket, revokeTicket, Ticket, Activity, WorkRequest } from '../api';
 import { useAuth } from '../contexts/AuthContext';
+import Toast from '../components/Toast';
 import './Pages.css';
 
 const statusColors: Record<string, string> = {
@@ -33,7 +34,9 @@ const permissionLabels: Record<string, string> = {
 
 const TicketDetail: React.FC = () => {
   const { requestId } = useParams<{ requestId: string }>();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
+  const fromPage = searchParams.get('from');
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,6 +45,8 @@ const TicketDetail: React.FC = () => {
   const [linkedWorkRequest, setLinkedWorkRequest] = useState<WorkRequest | null>(null);
   const [selectedWorkRequestId, setSelectedWorkRequestId] = useState<string>('');
   const [saving, setSaving] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
     if (requestId) {
@@ -95,6 +100,57 @@ const TicketDetail: React.FC = () => {
     }
   };
 
+  const handleApprove = async () => {
+    if (!requestId || !ticket) return;
+    const confirmed = window.confirm(`${ticket.requester_name}의 권한 요청을 승인하시겠습니까?`);
+    if (!confirmed) return;
+
+    setProcessing(true);
+    try {
+      await approveTicket(requestId);
+      setToast({ message: '권한 요청이 승인되었습니다', type: 'success' });
+      await loadTicketDetail();
+    } catch (error: any) {
+      setToast({ message: error.response?.data?.error || '승인 처리 중 오류가 발생했습니다', type: 'error' });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!requestId || !ticket) return;
+    const reason = window.prompt('반려 사유를 입력하세요:');
+    if (reason === null) return; // 취소 클릭
+
+    setProcessing(true);
+    try {
+      await rejectTicket(requestId, reason);
+      setToast({ message: '권한 요청이 반려되었습니다', type: 'success' });
+      await loadTicketDetail();
+    } catch (error: any) {
+      setToast({ message: error.response?.data?.error || '반려 처리 중 오류가 발생했습니다', type: 'error' });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleRevoke = async () => {
+    if (!requestId || !ticket) return;
+    const confirmed = window.confirm(`${ticket.requester_name}의 권한을 회수하시겠습니까?`);
+    if (!confirmed) return;
+
+    setProcessing(true);
+    try {
+      await revokeTicket(requestId);
+      setToast({ message: '권한이 회수되었습니다', type: 'success' });
+      await loadTicketDetail();
+    } catch (error: any) {
+      setToast({ message: error.response?.data?.error || '회수 처리 중 오류가 발생했습니다', type: 'error' });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   const formatDateTime = (isoString: string) => {
     const date = new Date(isoString);
     return date.toLocaleString('ko-KR', {
@@ -122,8 +178,18 @@ const TicketDetail: React.FC = () => {
 
   return (
     <div className="page">
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+
       <div className="page-header">
-        <Link to="/role-requests" className="back-link">← 목록으로</Link>
+        <Link to={fromPage === 'admin-approval' ? '/admin/ticket-approval' : '/role-requests'} className="back-link">
+          ← {fromPage === 'admin-approval' ? '권한 승인/반려로' : '목록으로'}
+        </Link>
         <h2>티켓 상세</h2>
       </div>
 
@@ -136,6 +202,35 @@ const TicketDetail: React.FC = () => {
             {statusLabels[ticket.status] || ticket.status}
           </span>
           <span className="ticket-id">ID: {ticket.request_id}</span>
+          {user?.is_admin && ticket.status === 'pending' && (
+            <div className="detail-header-actions">
+              <button
+                className="action-btn-approve"
+                onClick={handleApprove}
+                disabled={processing}
+              >
+                {processing ? '처리 중...' : '승인'}
+              </button>
+              <button
+                className="action-btn-reject"
+                onClick={handleReject}
+                disabled={processing}
+              >
+                {processing ? '처리 중...' : '반려'}
+              </button>
+            </div>
+          )}
+          {user?.is_admin && ticket.status === 'active' && (
+            <div className="detail-header-actions">
+              <button
+                className="action-btn-revoke"
+                onClick={handleRevoke}
+                disabled={processing}
+              >
+                {processing ? '처리 중...' : '회수'}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="detail-grid">

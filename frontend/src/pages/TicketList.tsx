@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { getTickets, Ticket } from '../api';
+import { getTickets, revokeTicket, Ticket } from '../api';
+import { useAuth } from '../contexts/AuthContext';
 import { getNameByMattermost, getNameByIamUser, iamUserList } from '../utils/userMapping';
+import Pagination from '../components/Pagination';
+import Toast from '../components/Toast';
 import './Pages.css';
 
 const statusColors: Record<string, string> = {
@@ -31,9 +34,12 @@ const permissionLabels: Record<string, string> = {
   full: '전체',
 };
 
+const ITEMS_PER_PAGE = 20;
+
 const TicketList: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { user } = useAuth();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>(searchParams.get('status') || '');
@@ -41,6 +47,9 @@ const TicketList: React.FC = () => {
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
   const [showUserDropdown, setShowUserDropdown] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [processing, setProcessing] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const handleRowClick = (requestId: string) => {
     navigate(`/tickets/${requestId}`);
@@ -97,11 +106,40 @@ const TicketList: React.FC = () => {
     setUserFilter('');
     setStartDate('');
     setEndDate('');
+    setCurrentPage(1);
+  };
+
+  // 페이지네이션 계산
+  const totalItems = tickets.length;
+  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const paginatedTickets = tickets.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleUserSelect = (iamUser: string) => {
     setUserFilter(iamUser);
     setShowUserDropdown(false);
+  };
+
+  const handleRevoke = async (e: React.MouseEvent, ticket: Ticket) => {
+    e.stopPropagation(); // prevent row click
+    const confirmed = window.confirm(`${getNameByMattermost(ticket.requester_name)}의 권한을 회수하시겠습니까?`);
+    if (!confirmed) return;
+
+    setProcessing(ticket.request_id);
+    try {
+      await revokeTicket(ticket.request_id);
+      setToast({ message: '권한이 회수되었습니다', type: 'success' });
+      await loadTickets();
+    } catch (error: any) {
+      setToast({ message: error.response?.data?.error || '회수 처리 중 오류가 발생했습니다', type: 'error' });
+    } finally {
+      setProcessing(null);
+    }
   };
 
   // 드롭다운에 표시할 필터링된 사용자 목록
@@ -125,6 +163,14 @@ const TicketList: React.FC = () => {
 
   return (
     <div className="page">
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+
       <div className="page-header">
         <h2>업무 권한 요청</h2>
         <p className="page-description">AWS Role 권한 요청 내역을 확인합니다.</p>
@@ -223,10 +269,11 @@ const TicketList: React.FC = () => {
                 <th>기간</th>
                 <th>목적</th>
                 <th>요청일시</th>
+                {user?.is_admin && <th>작업</th>}
               </tr>
             </thead>
             <tbody>
-              {tickets.map((ticket) => (
+              {paginatedTickets.map((ticket) => (
                 <tr
                   key={ticket.request_id}
                   onClick={() => handleRowClick(ticket.request_id)}
@@ -250,6 +297,19 @@ const TicketList: React.FC = () => {
                   </td>
                   <td data-label="목적" className="purpose-cell" title={ticket.purpose}>{ticket.purpose}</td>
                   <td data-label="요청일시" className="date-cell">{formatDateTime(ticket.created_at)}</td>
+                  {user?.is_admin && (
+                    <td data-label="작업" className="action-cell">
+                      {ticket.status === 'active' && (
+                        <button
+                          className="action-btn-revoke"
+                          onClick={(e) => handleRevoke(e, ticket)}
+                          disabled={processing === ticket.request_id}
+                        >
+                          {processing === ticket.request_id ? '처리 중...' : '회수'}
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -257,6 +317,13 @@ const TicketList: React.FC = () => {
           {tickets.length === 0 && (
             <div className="empty-state">데이터가 없습니다.</div>
           )}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={handlePageChange}
+            totalItems={totalItems}
+            itemsPerPage={ITEMS_PER_PAGE}
+          />
         </div>
       )}
     </div>
