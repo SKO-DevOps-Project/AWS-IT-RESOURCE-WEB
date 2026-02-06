@@ -3,9 +3,12 @@ DynamoDB Repository for AWS Role Request System
 """
 import boto3
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from models import RoleRequest, RequestStatus
+
+# Korea Standard Time (UTC+9)
+KST = timezone(timedelta(hours=9))
 
 
 class RoleRequestRepository:
@@ -65,7 +68,7 @@ class RoleRequestRepository:
         update_expression = "SET #status = :status, updated_at = :updated_at"
         expression_values = {
             ":status": status.value,
-            ":updated_at": datetime.utcnow().isoformat(),
+            ":updated_at": datetime.now(KST).isoformat(),
         }
         expression_names = {"#status": "status"}
         

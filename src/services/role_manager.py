@@ -4,10 +4,13 @@ Handles IAM Role and Policy creation/deletion
 """
 import json
 import boto3
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional, List
 
 from models import RoleRequest
+
+# Korea Standard Time (UTC+9)
+KST = timezone(timedelta(hours=9))
 
 
 # Service-specific permissions for Console access
@@ -275,7 +278,7 @@ class RoleManager:
         """
         import uuid
         unique_id = str(uuid.uuid4())[:8]
-        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        timestamp = datetime.now(KST).strftime("%Y%m%d%H%M%S")
         return f"dynamic-role-{request.iam_user_name}-{request.env}-{request.service}-{timestamp}-{unique_id}"
     
     def create_dynamic_role(self, request: RoleRequest) -> Dict[str, Any]:

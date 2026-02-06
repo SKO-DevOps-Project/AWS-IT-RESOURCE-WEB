@@ -11,7 +11,10 @@ import boto3
 import os
 import re
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+# Korea Standard Time (UTC+9)
+KST = timezone(timedelta(hours=9))
 from typing import Optional, List, Dict, Any
 from urllib.parse import unquote_plus
 
@@ -147,7 +150,7 @@ def parse_cloudtrail_record(record: Dict) -> Optional[Dict]:
     resources = extract_resources(record)
 
     # TTL 계산 (90일 후)
-    ttl_timestamp = int((datetime.utcnow() + timedelta(days=90)).timestamp())
+    ttl_timestamp = int((datetime.now(KST) + timedelta(days=90)).timestamp())
 
     # ActivityLog 생성
     activity_log = {

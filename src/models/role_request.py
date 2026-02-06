@@ -2,9 +2,17 @@
 Data models for AWS Role Request System
 """
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 from typing import Optional, List
+
+# Korea Standard Time (UTC+9)
+KST = timezone(timedelta(hours=9))
+
+
+def get_now_kst() -> datetime:
+    """Get current datetime in KST"""
+    return datetime.now(KST)
 
 
 class RequestStatus(Enum):
@@ -109,8 +117,8 @@ class RoleRequest:
     permission_type: str = "read_update"  # read_only, read_update, read_update_create, full
     target_services: List[str] = field(default_factory=lambda: ["all"])  # ec2, rds, lambda, s3, all
     status: RequestStatus = RequestStatus.PENDING
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=get_now_kst)
+    updated_at: datetime = field(default_factory=get_now_kst)
     approver_id: Optional[str] = None
     rejection_reason: Optional[str] = None
     role_arn: Optional[str] = None
