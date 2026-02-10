@@ -136,12 +136,13 @@ def create_request_dialog(
             "type": "select",
             "default": "all",
             "options": [
-                {"text": "전체 (EC2+SSM, RDS, Lambda, S3, EB)", "value": "all"},
+                {"text": "전체 (EC2+SSM, RDS, Lambda, S3, EB, DynamoDB)", "value": "all"},
                 {"text": "EC2만 (SSM 접속 포함)", "value": "ec2"},
                 {"text": "RDS만", "value": "rds"},
                 {"text": "Lambda만", "value": "lambda"},
                 {"text": "S3만", "value": "s3"},
                 {"text": "ElasticBeanstalk만", "value": "elasticbeanstalk"},
+                {"text": "DynamoDB만", "value": "dynamodb"},
             ],
             "help_text": "권한이 필요한 AWS 서비스를 선택하세요",
         },
@@ -468,6 +469,7 @@ class RequestHandler:
             "lambda": "Lambda",
             "s3": "S3",
             "elasticbeanstalk": "ElasticBeanstalk",
+            "dynamodb": "DynamoDB",
         }
         
         # Create request - use target_user_id for master requests

@@ -41,6 +41,7 @@ class TargetService(Enum):
     LAMBDA = "lambda"
     S3 = "s3"
     ELASTICBEANSTALK = "elasticbeanstalk"
+    DYNAMODB = "dynamodb"
     ALL = "all"
 
 
@@ -52,7 +53,7 @@ VALID_SERVICES = [
     "aihub", "safety", "infra", "biz_drive", "alarm",
     "unit-mgnt", "software-updater", "sms-sender", "ai-nams",
     "fleet-mgnt", "bp-eval", "form-system", "sko-sso-auth",
-    "sko-sftp", "asset-mgmt", "ocean", "security365"
+    "sko-sftp", "asset-mgmt", "ocean", "security365", "kca"
 ]
 
 # Display names for services (shown in Mattermost)
@@ -74,6 +75,7 @@ SERVICE_DISPLAY_NAMES = {
     "asset-mgmt": "TAMS관리시스템",
     "ocean": "OCEAN",
     "security365": "Security365",
+    "kca": "KCA시스템",
 }
 
 # Valid permission types

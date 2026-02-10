@@ -1320,12 +1320,13 @@ def get_role_request_options(event: Dict[str, Any]) -> Dict[str, Any]:
 
     # Target service options
     target_services = [
-        {'value': 'all', 'label': '전체 (EC2+SSM, RDS, Lambda, S3, EB)'},
+        {'value': 'all', 'label': '전체 (EC2+SSM, RDS, Lambda, S3, EB, DynamoDB)'},
         {'value': 'ec2', 'label': 'EC2만 (SSM 접속 포함)'},
         {'value': 'rds', 'label': 'RDS만'},
         {'value': 'lambda', 'label': 'Lambda만'},
         {'value': 's3', 'label': 'S3만'},
         {'value': 'elasticbeanstalk', 'label': 'ElasticBeanstalk만'},
+        {'value': 'dynamodb', 'label': 'DynamoDB만'},
     ]
 
     # Environment options
@@ -1734,6 +1735,7 @@ def create_admin_role_grant(event: Dict[str, Any], body: Dict[str, Any]) -> Dict
                     "lambda": "Lambda",
                     "s3": "S3",
                     "elasticbeanstalk": "ElasticBeanstalk",
+                    "dynamodb": "DynamoDB",
                 }
                 target_display = target_names.get(target_services, target_services)
 

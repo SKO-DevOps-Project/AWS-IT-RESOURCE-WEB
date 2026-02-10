@@ -220,6 +220,24 @@ SERVICE_PERMISSIONS = {
             "s3:ListBucket",
             "sns:List*",
             "sqs:List*",
+            # EC2 읽기 (EB 인스턴스 모니터링)
+            "ec2:Describe*",
+            "ec2:Get*",
+            # SSM 읽기 (세션 관리자)
+            "ssm:DescribeSessions",
+            "ssm:GetConnectionStatus",
+            "ssm:DescribeInstanceInformation",
+            "ssm:DescribeInstanceProperties",
+            # CloudWatch Logs (EB 로그)
+            "logs:Describe*",
+            "logs:Get*",
+            "logs:FilterLogEvents",
+            "logs:StartQuery",
+            "logs:StopQuery",
+            "logs:GetQueryResults",
+            # RDS 읽기 (EB에 연결된 RDS 모니터링)
+            "rds:Describe*",
+            "rds:List*",
         ],
         "update": [
             "elasticbeanstalk:UpdateEnvironment",
@@ -232,6 +250,47 @@ SERVICE_PERMISSIONS = {
             "elasticbeanstalk:UpdateTagsForResource",
             "elasticbeanstalk:AddTags",
             "elasticbeanstalk:RemoveTags",
+            # EC2 인스턴스 관리
+            "ec2:StartInstances",
+            "ec2:StopInstances",
+            "ec2:RebootInstances",
+            "ec2:ModifyInstanceAttribute",
+            "ec2:CreateTags",
+            "ec2:DeleteTags",
+            # EC2 Instance Connect
+            "ec2-instance-connect:SendSSHPublicKey",
+            "ec2-instance-connect:SendSerialConsoleSSHPublicKey",
+            # SSM Session Manager
+            "ssm:StartSession",
+            "ssm:TerminateSession",
+            "ssm:ResumeSession",
+            "ssmmessages:CreateControlChannel",
+            "ssmmessages:CreateDataChannel",
+            "ssmmessages:OpenControlChannel",
+            "ssmmessages:OpenDataChannel",
+            "ec2messages:AcknowledgeMessage",
+            "ec2messages:DeleteMessage",
+            "ec2messages:FailMessage",
+            "ec2messages:GetEndpoint",
+            "ec2messages:GetMessages",
+            "ec2messages:SendReply",
+            # AutoScaling 관리
+            "autoscaling:UpdateAutoScalingGroup",
+            "autoscaling:SetDesiredCapacity",
+            "autoscaling:SuspendProcesses",
+            "autoscaling:ResumeProcesses",
+            "autoscaling:CreateOrUpdateTags",
+            "autoscaling:DeleteTags",
+            # CloudFormation 관리
+            "cloudformation:UpdateStack",
+            "cloudformation:CancelUpdateStack",
+            "cloudformation:ContinueUpdateRollback",
+            "cloudformation:SignalResource",
+            "cloudformation:TagResource",
+            "cloudformation:UntagResource",
+            # S3 (EB 배포용)
+            "s3:PutObject",
+            "s3:DeleteObject",
         ],
         "create": [
             "elasticbeanstalk:CreateApplication",
@@ -241,6 +300,13 @@ SERVICE_PERMISSIONS = {
             "elasticbeanstalk:CreateStorageLocation",
             "s3:PutObject",
             "s3:CreateBucket",
+            # CloudFormation (EB 환경 생성 시 필요)
+            "cloudformation:CreateStack",
+            "cloudformation:CreateChangeSet",
+            "cloudformation:ExecuteChangeSet",
+            # AutoScaling
+            "autoscaling:CreateAutoScalingGroup",
+            "autoscaling:CreateLaunchConfiguration",
         ],
         "delete": [
             "elasticbeanstalk:DeleteApplication",
@@ -248,6 +314,54 @@ SERVICE_PERMISSIONS = {
             "elasticbeanstalk:DeleteEnvironmentConfiguration",
             "elasticbeanstalk:DeleteConfigurationTemplate",
             "elasticbeanstalk:TerminateEnvironment",
+            # CloudFormation
+            "cloudformation:DeleteStack",
+            "cloudformation:DeleteChangeSet",
+            # AutoScaling
+            "autoscaling:DeleteAutoScalingGroup",
+            "autoscaling:DeleteLaunchConfiguration",
+        ],
+    },
+    "dynamodb": {
+        "read": [
+            "dynamodb:DescribeTable",
+            "dynamodb:DescribeStream",
+            "dynamodb:DescribeTimeToLive",
+            "dynamodb:DescribeContinuousBackups",
+            "dynamodb:DescribeBackup",
+            "dynamodb:ListTables",
+            "dynamodb:ListBackups",
+            "dynamodb:ListStreams",
+            "dynamodb:ListTagsOfResource",
+            "dynamodb:GetItem",
+            "dynamodb:BatchGetItem",
+            "dynamodb:Query",
+            "dynamodb:Scan",
+            "cloudwatch:Describe*",
+            "cloudwatch:Get*",
+            "cloudwatch:List*",
+        ],
+        "update": [
+            "dynamodb:PutItem",
+            "dynamodb:UpdateItem",
+            "dynamodb:DeleteItem",
+            "dynamodb:BatchWriteItem",
+            "dynamodb:UpdateTable",
+            "dynamodb:UpdateTimeToLive",
+            "dynamodb:UpdateContinuousBackups",
+            "dynamodb:TagResource",
+            "dynamodb:UntagResource",
+        ],
+        "create": [
+            "dynamodb:CreateTable",
+            "dynamodb:CreateBackup",
+            "dynamodb:CreateGlobalTable",
+            "dynamodb:RestoreTableFromBackup",
+            "dynamodb:RestoreTableToPointInTime",
+        ],
+        "delete": [
+            "dynamodb:DeleteTable",
+            "dynamodb:DeleteBackup",
         ],
     },
 }
@@ -418,7 +532,7 @@ class RoleManager:
         
         # Determine which services to include
         if 'all' in target_services:
-            services_to_include = ['ec2', 'rds', 'lambda', 's3', 'elasticbeanstalk']
+            services_to_include = ['ec2', 'rds', 'lambda', 's3', 'elasticbeanstalk', 'dynamodb']
         else:
             services_to_include = target_services
         
@@ -537,6 +651,9 @@ class RoleManager:
                     "lambda:TagResource",
                     "s3:PutBucketTagging",
                     "s3:PutObjectTagging",
+                    "dynamodb:TagResource",
+                    "autoscaling:CreateOrUpdateTags",
+                    "elasticbeanstalk:AddTags",
                 ],
                 "Resource": "*",
                 "Condition": {
@@ -547,6 +664,24 @@ class RoleManager:
                 }
             })
         
+        # EB 서비스 포함 시, EB S3 Storage 버킷 전용 액세스 추가
+        if 'elasticbeanstalk' in services_to_include:
+            statements.append({
+                "Sid": "EBStorageBucketAccess",
+                "Effect": "Allow",
+                "Action": [
+                    "s3:GetObject",
+                    "s3:PutObject",
+                    "s3:DeleteObject",
+                    "s3:GetBucketLocation",
+                    "s3:ListBucket",
+                ],
+                "Resource": [
+                    f"arn:aws:s3:::elasticbeanstalk-ap-northeast-2-{self.account_id}",
+                    f"arn:aws:s3:::elasticbeanstalk-ap-northeast-2-{self.account_id}/*",
+                ]
+            })
+
         return {
             "Version": "2012-10-17",
             "Statement": statements,
