@@ -75,7 +75,7 @@ SERVICE_DISPLAY_NAMES = {
     "asset-mgmt": "TAMS관리시스템",
     "ocean": "OCEAN",
     "security365": "Security365",
-    "kca": "KCA시스템",
+    "kca": "무선국관리시스템",
 }
 
 # Valid permission types
