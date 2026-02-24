@@ -159,7 +159,7 @@ def create_request_dialog(
             "name": "end_time",
             "type": "text",
             "placeholder": "예: 18:00 또는 2026-01-15 18:00",
-            "help_text": "권한 종료 시간 (KST, 최대 24시간)",
+            "help_text": "권한 종료 시간 (KST). 1회 세션 최대 12시간",
         },
         {
             "display_name": "목적",

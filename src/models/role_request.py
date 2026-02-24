@@ -42,6 +42,7 @@ class TargetService(Enum):
     S3 = "s3"
     ELASTICBEANSTALK = "elasticbeanstalk"
     DYNAMODB = "dynamodb"
+    ELASTICLOADBALANCING = "elasticloadbalancing"
     ALL = "all"
 
 

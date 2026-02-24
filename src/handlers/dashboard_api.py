@@ -21,7 +21,7 @@ from models import (
     RoleRequest,
     RequestStatus,
 )
-from services.mattermost_client import MattermostClient, Attachment, create_work_request_notification, create_approval_message
+from services.mattermost_client import MattermostClient, Attachment, Action, create_work_request_notification, create_approval_message
 from services.request_validator import RequestValidator
 
 
@@ -1320,13 +1320,14 @@ def get_role_request_options(event: Dict[str, Any]) -> Dict[str, Any]:
 
     # Target service options
     target_services = [
-        {'value': 'all', 'label': '전체 (EC2+SSM, RDS, Lambda, S3, EB, DynamoDB)'},
+        {'value': 'all', 'label': '전체 (EC2+SSM, RDS, Lambda, S3, EB, DynamoDB, ELB)'},
         {'value': 'ec2', 'label': 'EC2만 (SSM 접속 포함)'},
         {'value': 'rds', 'label': 'RDS만'},
         {'value': 'lambda', 'label': 'Lambda만'},
         {'value': 's3', 'label': 'S3만'},
         {'value': 'elasticbeanstalk', 'label': 'ElasticBeanstalk만'},
         {'value': 'dynamodb', 'label': 'DynamoDB만'},
+        {'value': 'elasticloadbalancing', 'label': 'ELB (로드밸런서)만'},
     ]
 
     # Environment options
@@ -1736,6 +1737,7 @@ def create_admin_role_grant(event: Dict[str, Any], body: Dict[str, Any]) -> Dict
                     "s3": "S3",
                     "elasticbeanstalk": "ElasticBeanstalk",
                     "dynamodb": "DynamoDB",
+                    "elasticloadbalancing": "ELB",
                 }
                 target_display = target_names.get(target_services, target_services)
 
@@ -1951,6 +1953,22 @@ def approve_ticket(event: Dict[str, Any], request_id: str) -> Dict[str, Any]:
                     }
                     perm_display = perm_names.get(ticket.get('permission_type', 'read_update'), ticket.get('permission_type', 'read_update'))
 
+                    # Target service display names
+                    target_names = {
+                        "all": "전체",
+                        "ec2": "EC2",
+                        "rds": "RDS",
+                        "lambda": "Lambda",
+                        "s3": "S3",
+                        "elasticbeanstalk": "ElasticBeanstalk",
+                        "dynamodb": "DynamoDB",
+                    }
+                    target_services_val = ticket.get('target_services', ['all'])
+                    target_services_str = target_services_val[0] if isinstance(target_services_val, list) and target_services_val else "all"
+                    target_display = target_names.get(target_services_str, target_services_str)
+
+                    iam_user_name = ticket.get('iam_user_name', '')
+
                     mattermost.send_dm_by_username(username=requester_mattermost_id,
                         message=f"✅ AWS Role이 생성되었습니다! (웹 승인)\n\n"
                                f"**요청 ID:** {request_id}\n"
@@ -1961,27 +1979,73 @@ def approve_ticket(event: Dict[str, Any], request_id: str) -> Dict[str, Any]:
                                f"2. Account: `680877507363`\n"
                                f"3. Role: `{role_name}`\n\n"
                                f"---\n"
+                               f"## 💻 CLI에서 사용하기\n\n"
+                               f"**방법 1: 환경변수 설정 (권장)**\n"
+                               f"```bash\n"
+                               f"# 1. assume-role 실행\n"
+                               f"CREDS=$(aws sts assume-role --role-arn {role_info['role_arn']} --role-session-name {iam_user_name}-session --query 'Credentials' --output json)\n\n"
+                               f"# 2. 환경변수 설정\n"
+                               f"export AWS_ACCESS_KEY_ID=$(echo $CREDS | jq -r '.AccessKeyId')\n"
+                               f"export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | jq -r '.SecretAccessKey')\n"
+                               f"export AWS_SESSION_TOKEN=$(echo $CREDS | jq -r '.SessionToken')\n\n"
+                               f"# 3. 확인\n"
+                               f"aws sts get-caller-identity\n"
+                               f"```\n\n"
+                               f"**방법 2: AWS Profile 설정**\n"
+                               f"```bash\n"
+                               f"# ~/.aws/credentials 에 추가\n"
+                               f"[temp-role]\n"
+                               f"aws_access_key_id = <AccessKeyId 값>\n"
+                               f"aws_secret_access_key = <SecretAccessKey 값>\n"
+                               f"aws_session_token = <SessionToken 값>\n\n"
+                               f"# 사용 시\n"
+                               f"aws s3 ls --profile temp-role\n"
+                               f"```\n\n"
+                               f"---\n"
                                f"**시작 시간:** {start_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
                                f"**종료 시간:** {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
                                f"**Env:** {ticket.get('env')} | **Service:** {ticket.get('service')}\n"
-                               f"**권한 유형:** {perm_display}",
+                               f"**권한 유형:** {perm_display} | **대상 서비스:** {target_display}",
                     )
                 except Exception as e:
                     print(f"[approve_ticket] Failed to send DM: {e}")
 
-            # Send notification to approval channel
+            # Send notification to approval channel with revoke button
             if APPROVAL_CHANNEL_ID:
                 try:
                     mattermost = MattermostClient()
-                    mattermost.send_to_channel(
+                    callback_url = os.environ.get("CALLBACK_URL", "")
+
+                    approval_attachment = Attachment(
+                        fallback=f"승인됨: {ticket.get('requester_name', '')}",
+                        color="#00FF00",
+                        title="✅ 승인됨 (웹)",
+                        text=f"**요청자:** {ticket.get('requester_name', '')}\n"
+                             f"**IAM User:** {ticket.get('iam_user_name', '')}\n"
+                             f"**Env:** {ticket.get('env')} | **Service:** {ticket.get('service')}\n"
+                             f"**시간:** {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n\n"
+                             f"**승인자:** {user.get('name', '')}\n"
+                             f"**요청 ID:** {request_id}",
+                        actions=[
+                            Action(
+                                id="revoke",
+                                name="🔄 권한 회수",
+                                integration={
+                                    "url": callback_url,
+                                    "context": {
+                                        "action": "revoke",
+                                        "request_id": request_id,
+                                    },
+                                },
+                                style="danger",
+                            ),
+                        ],
+                    )
+
+                    mattermost.send_interactive_message(
                         channel_id=APPROVAL_CHANNEL_ID,
-                        message=f"✅ **[웹 승인]** 권한이 승인되었습니다.\n\n"
-                               f"**요청 ID:** {request_id}\n"
-                               f"**요청자:** {ticket.get('requester_name', '')} ({ticket.get('iam_user_name', '')})\n"
-                               f"**승인자:** {user.get('name', '')}\n"
-                               f"**Env:** {ticket.get('env')} | **Service:** {ticket.get('service')}\n"
-                               f"**권한 유형:** {ticket.get('permission_type', 'read_update')}\n"
-                               f"**기간:** {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')} (KST)",
+                        text="📋 권한 요청 - 승인됨 (웹)",
+                        attachments=[approval_attachment],
                     )
                 except Exception as e:
                     print(f"[approve_ticket] Failed to send channel notification: {e}")
@@ -2035,19 +2099,43 @@ def approve_ticket(event: Dict[str, Any], request_id: str) -> Dict[str, Any]:
                 except Exception as e:
                     print(f"[approve_ticket] Failed to send DM: {e}")
 
-            # Send notification to approval channel
+            # Send notification to approval channel with revoke button
             if APPROVAL_CHANNEL_ID:
                 try:
                     mattermost = MattermostClient()
-                    mattermost.send_to_channel(
+                    callback_url = os.environ.get("CALLBACK_URL", "")
+
+                    scheduled_attachment = Attachment(
+                        fallback=f"승인됨 (예약): {ticket.get('requester_name', '')}",
+                        color="#00FF00",
+                        title="✅ 승인됨 (웹/예약)",
+                        text=f"**요청자:** {ticket.get('requester_name', '')}\n"
+                             f"**IAM User:** {ticket.get('iam_user_name', '')}\n"
+                             f"**Env:** {ticket.get('env')} | **Service:** {ticket.get('service')}\n"
+                             f"**시간:** {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n\n"
+                             f"**승인자:** {user.get('name', '')}\n"
+                             f"**요청 ID:** {request_id}\n"
+                             f"시작 시간에 Role이 자동 생성됩니다.",
+                        actions=[
+                            Action(
+                                id="revoke",
+                                name="🔄 권한 회수",
+                                integration={
+                                    "url": callback_url,
+                                    "context": {
+                                        "action": "revoke",
+                                        "request_id": request_id,
+                                    },
+                                },
+                                style="danger",
+                            ),
+                        ],
+                    )
+
+                    mattermost.send_interactive_message(
                         channel_id=APPROVAL_CHANNEL_ID,
-                        message=f"✅ **[웹 승인]** 권한이 승인되었습니다. (예약)\n\n"
-                               f"**요청 ID:** {request_id}\n"
-                               f"**요청자:** {ticket.get('requester_name', '')} ({ticket.get('iam_user_name', '')})\n"
-                               f"**승인자:** {user.get('name', '')}\n"
-                               f"**Env:** {ticket.get('env')} | **Service:** {ticket.get('service')}\n"
-                               f"**기간:** {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
-                               f"시작 시간에 Role이 자동 생성됩니다.",
+                        text="📋 권한 요청 - 승인됨 (웹/예약)",
+                        attachments=[scheduled_attachment],
                     )
                 except Exception as e:
                     print(f"[approve_ticket] Failed to send channel notification: {e}")

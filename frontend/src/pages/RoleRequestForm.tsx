@@ -283,6 +283,7 @@ const RoleRequestForm: React.FC = () => {
           {/* 시간 설정 */}
           <div className="form-section">
             <h3 className="form-section-title">시간 설정</h3>
+            <p className="form-section-hint">1회 세션 최대 12시간 (AWS 제한). 12시간 초과 시 중간에 다시 assume-role 필요</p>
             <div className="form-row">
               <div className="form-group">
                 <label htmlFor="start_time">시작 시간</label>

@@ -244,8 +244,12 @@ Resources:
                 - iam:DeleteRole
                 - iam:CreatePolicy
                 - iam:DeletePolicy
+                - iam:ListPolicyVersions
+                - iam:DeletePolicyVersion
                 - iam:AttachRolePolicy
                 - iam:DetachRolePolicy
+                - iam:PutRolePolicy
+                - iam:DeleteRolePolicy
                 - iam:TagRole
                 - iam:GetRole
               Resource: "*"
@@ -310,8 +314,12 @@ Resources:
                 - iam:DeleteRole
                 - iam:CreatePolicy
                 - iam:DeletePolicy
+                - iam:ListPolicyVersions
+                - iam:DeletePolicyVersion
                 - iam:AttachRolePolicy
                 - iam:DetachRolePolicy
+                - iam:PutRolePolicy
+                - iam:DeleteRolePolicy
                 - iam:TagRole
                 - iam:GetRole
               Resource: "*"
@@ -346,8 +354,12 @@ Resources:
                 - iam:DeleteRole
                 - iam:CreatePolicy
                 - iam:DeletePolicy
+                - iam:ListPolicyVersions
+                - iam:DeletePolicyVersion
                 - iam:AttachRolePolicy
                 - iam:DetachRolePolicy
+                - iam:PutRolePolicy
+                - iam:DeleteRolePolicy
                 - iam:TagRole
                 - iam:GetRole
               Resource: "*"
@@ -440,8 +452,12 @@ Resources:
                 - iam:DeleteRole
                 - iam:CreatePolicy
                 - iam:DeletePolicy
+                - iam:ListPolicyVersions
+                - iam:DeletePolicyVersion
                 - iam:AttachRolePolicy
                 - iam:DetachRolePolicy
+                - iam:PutRolePolicy
+                - iam:DeleteRolePolicy
                 - iam:TagRole
                 - iam:GetRole
               Resource: "*"

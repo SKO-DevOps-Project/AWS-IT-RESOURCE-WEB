@@ -281,6 +281,9 @@ class ApprovalHandler:
                                 "rds": "RDS",
                                 "lambda": "Lambda",
                                 "s3": "S3",
+                                "elasticbeanstalk": "ElasticBeanstalk",
+                                "dynamodb": "DynamoDB",
+                                "elasticloadbalancing": "ELB",
                             }
                             
                             perm_display = permission_type_names.get(

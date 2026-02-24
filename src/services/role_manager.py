@@ -291,6 +291,17 @@ SERVICE_PERMISSIONS = {
             # S3 (EB 배포용)
             "s3:PutObject",
             "s3:DeleteObject",
+            # ELB (EB 로드밸런서 관리)
+            "elasticloadbalancing:ModifyLoadBalancerAttributes",
+            "elasticloadbalancing:ModifyTargetGroupAttributes",
+            "elasticloadbalancing:ModifyListener",
+            "elasticloadbalancing:ModifyRule",
+            "elasticloadbalancing:SetSecurityGroups",
+            "elasticloadbalancing:SetSubnets",
+            "elasticloadbalancing:AddTags",
+            "elasticloadbalancing:RemoveTags",
+            "elasticloadbalancing:RegisterTargets",
+            "elasticloadbalancing:DeregisterTargets",
         ],
         "create": [
             "elasticbeanstalk:CreateApplication",
@@ -307,6 +318,11 @@ SERVICE_PERMISSIONS = {
             # AutoScaling
             "autoscaling:CreateAutoScalingGroup",
             "autoscaling:CreateLaunchConfiguration",
+            # ELB (EB 환경 생성 시 필요)
+            "elasticloadbalancing:CreateLoadBalancer",
+            "elasticloadbalancing:CreateTargetGroup",
+            "elasticloadbalancing:CreateListener",
+            "elasticloadbalancing:CreateRule",
         ],
         "delete": [
             "elasticbeanstalk:DeleteApplication",
@@ -320,6 +336,11 @@ SERVICE_PERMISSIONS = {
             # AutoScaling
             "autoscaling:DeleteAutoScalingGroup",
             "autoscaling:DeleteLaunchConfiguration",
+            # ELB
+            "elasticloadbalancing:DeleteLoadBalancer",
+            "elasticloadbalancing:DeleteTargetGroup",
+            "elasticloadbalancing:DeleteListener",
+            "elasticloadbalancing:DeleteRule",
         ],
     },
     "dynamodb": {
@@ -362,6 +383,38 @@ SERVICE_PERMISSIONS = {
         "delete": [
             "dynamodb:DeleteTable",
             "dynamodb:DeleteBackup",
+        ],
+    },
+    "elasticloadbalancing": {
+        "read": [
+            "elasticloadbalancing:Describe*",
+            "cloudwatch:Describe*",
+            "cloudwatch:Get*",
+            "cloudwatch:List*",
+        ],
+        "update": [
+            "elasticloadbalancing:ModifyLoadBalancerAttributes",
+            "elasticloadbalancing:ModifyTargetGroupAttributes",
+            "elasticloadbalancing:ModifyListener",
+            "elasticloadbalancing:ModifyRule",
+            "elasticloadbalancing:SetSecurityGroups",
+            "elasticloadbalancing:SetSubnets",
+            "elasticloadbalancing:AddTags",
+            "elasticloadbalancing:RemoveTags",
+            "elasticloadbalancing:RegisterTargets",
+            "elasticloadbalancing:DeregisterTargets",
+        ],
+        "create": [
+            "elasticloadbalancing:CreateLoadBalancer",
+            "elasticloadbalancing:CreateTargetGroup",
+            "elasticloadbalancing:CreateListener",
+            "elasticloadbalancing:CreateRule",
+        ],
+        "delete": [
+            "elasticloadbalancing:DeleteLoadBalancer",
+            "elasticloadbalancing:DeleteTargetGroup",
+            "elasticloadbalancing:DeleteListener",
+            "elasticloadbalancing:DeleteRule",
         ],
     },
 }
@@ -417,11 +470,17 @@ class RoleManager:
         
         # Create role (description must be ASCII only)
         description = f"Dynamic role for {request.iam_user_name} - Env:{request.env} Service:{request.service}"
-        
+
+        # MaxSessionDuration: 요청 기간만큼 설정 (최소 3600초, 최대 43200초=12시간)
+        duration_seconds = int((request.end_time - request.start_time).total_seconds())
+        max_session_duration = max(3600, min(duration_seconds, 43200))
+        print(f"[RoleManager] MaxSessionDuration: {max_session_duration}s ({max_session_duration // 3600}h {(max_session_duration % 3600) // 60}m)")
+
         role_response = self.iam_client.create_role(
             RoleName=role_name,
             AssumeRolePolicyDocument=json.dumps(trust_policy),
             Description=description,
+            MaxSessionDuration=max_session_duration,
             Tags=[
                 {"Key": "RequestId", "Value": request.request_id},
                 {"Key": "Requester", "Value": request.iam_user_name},
@@ -433,60 +492,81 @@ class RoleManager:
         role_arn = role_response["Role"]["Arn"]
         print(f"[RoleManager] Role created: {role_arn}")
         
-        # Create permission policy
+        # Create permission policy (inline policy: 10,240 byte limit vs managed 6,144)
         permission_policy = self._generate_permission_policy(request)
-        
-        policy_response = self.iam_client.create_policy(
-            PolicyName=policy_name,
-            PolicyDocument=json.dumps(permission_policy),
-            Description=f"Policy for {role_name}",
-        )
-        policy_arn = policy_response["Policy"]["Arn"]
-        print(f"[RoleManager] Policy created: {policy_arn}")
-        
-        # Attach policy to role
-        self.iam_client.attach_role_policy(
+        policy_json = json.dumps(permission_policy)
+        print(f"[RoleManager] Policy size: {len(policy_json)} bytes")
+
+        self.iam_client.put_role_policy(
             RoleName=role_name,
-            PolicyArn=policy_arn,
+            PolicyName=policy_name,
+            PolicyDocument=policy_json,
         )
-        print(f"[RoleManager] Policy attached to role")
-        
+        print(f"[RoleManager] Inline policy attached: {policy_name}")
+
         return {
             "role_arn": role_arn,
-            "policy_arn": policy_arn,
+            "policy_arn": policy_name,
             "role_name": role_name,
         }
     
     def delete_dynamic_role(self, role_arn: str, policy_arn: str) -> None:
         """
-        Delete dynamic role and policy
-        
+        Delete dynamic role and policy (supports both inline and managed policies)
+
         Args:
             role_arn: Role ARN to delete
-            policy_arn: Policy ARN to delete
+            policy_arn: Policy ARN (arn:aws:iam::...) or inline policy name
         """
         role_name = role_arn.split("/")[-1]
-        
-        # Detach policy from role
-        try:
-            self.iam_client.detach_role_policy(
-                RoleName=role_name,
-                PolicyArn=policy_arn,
-            )
-        except self.iam_client.exceptions.NoSuchEntityException:
-            pass
-        
-        # Delete role
-        try:
-            self.iam_client.delete_role(RoleName=role_name)
-        except self.iam_client.exceptions.NoSuchEntityException:
-            pass
-        
-        # Delete policy
-        try:
-            self.iam_client.delete_policy(PolicyArn=policy_arn)
-        except self.iam_client.exceptions.NoSuchEntityException:
-            pass
+        is_managed = policy_arn.startswith("arn:")
+
+        if is_managed:
+            # Legacy managed policy: detach then delete
+            try:
+                self.iam_client.detach_role_policy(
+                    RoleName=role_name,
+                    PolicyArn=policy_arn,
+                )
+            except self.iam_client.exceptions.NoSuchEntityException:
+                pass
+
+            # Delete role
+            try:
+                self.iam_client.delete_role(RoleName=role_name)
+            except self.iam_client.exceptions.NoSuchEntityException:
+                pass
+
+            # Delete non-default policy versions before deleting managed policy
+            try:
+                versions = self.iam_client.list_policy_versions(PolicyArn=policy_arn)
+                for version in versions.get('Versions', []):
+                    if not version['IsDefaultVersion']:
+                        self.iam_client.delete_policy_version(
+                            PolicyArn=policy_arn,
+                            VersionId=version['VersionId'],
+                        )
+            except self.iam_client.exceptions.NoSuchEntityException:
+                pass
+
+            try:
+                self.iam_client.delete_policy(PolicyArn=policy_arn)
+            except self.iam_client.exceptions.NoSuchEntityException:
+                pass
+        else:
+            # Inline policy: delete inline policy then role
+            try:
+                self.iam_client.delete_role_policy(
+                    RoleName=role_name,
+                    PolicyName=policy_arn,
+                )
+            except self.iam_client.exceptions.NoSuchEntityException:
+                pass
+
+            try:
+                self.iam_client.delete_role(RoleName=role_name)
+            except self.iam_client.exceptions.NoSuchEntityException:
+                pass
     
     def _generate_trust_policy(self, request: RoleRequest) -> Dict[str, Any]:
         """
@@ -532,7 +612,7 @@ class RoleManager:
         
         # Determine which services to include
         if 'all' in target_services:
-            services_to_include = ['ec2', 'rds', 'lambda', 's3', 'elasticbeanstalk', 'dynamodb']
+            services_to_include = ['ec2', 'rds', 'lambda', 's3', 'elasticbeanstalk', 'dynamodb', 'elasticloadbalancing']
         else:
             services_to_include = target_services
         
@@ -540,24 +620,39 @@ class RoleManager:
         read_actions = []
         tagged_actions = []
         create_actions = []
-        
+
         for svc in services_to_include:
             if svc in SERVICE_PERMISSIONS:
                 perms = SERVICE_PERMISSIONS[svc]
-                
+
                 # Always include read permissions
                 read_actions.extend(perms.get('read', []))
-                
+
                 if permission_type in ['read_update', 'read_update_create', 'full']:
                     tagged_actions.extend(perms.get('update', []))
-                
+
                 if permission_type in ['read_update_create', 'full']:
                     create_actions.extend(perms.get('create', []))
-                
+
                 if permission_type == 'full':
                     tagged_actions.extend(perms.get('delete', []))
-        
-        # Statement 1: Read-only permissions (no tag condition)
+
+        # EB 서비스: 태그를 지원하지 않는 배포 액션을 조건 없는 액션에 포함
+        if 'elasticbeanstalk' in services_to_include:
+            if permission_type in ['read_update', 'read_update_create', 'full']:
+                read_actions.extend([
+                    "elasticbeanstalk:CreateApplicationVersion",
+                    "elasticbeanstalk:CreateStorageLocation",
+                ])
+
+        # SSM/EC2 Messages 액션 분리 (조건 없이 허용해야 함 → read_actions에 합침)
+        if tagged_actions:
+            ssm_message_actions = [a for a in tagged_actions if a.startswith('ssmmessages:') or a.startswith('ec2messages:')]
+            if ssm_message_actions:
+                read_actions.extend(ssm_message_actions)
+                tagged_actions = [a for a in tagged_actions if a not in ssm_message_actions]
+
+        # Statement 1: 조건 없는 액션 (read + SSM messages + EB deploy)
         if read_actions:
             statements.append({
                 "Sid": "ReadOnlyAccess",
@@ -565,14 +660,13 @@ class RoleManager:
                 "Action": list(set(read_actions)),
                 "Resource": "*",
             })
-        
+
         # Statement 2: Tag-based permissions (update/delete)
         if tagged_actions:
-            # Separate SSM actions from other actions for special condition
+            # Separate SSM session actions for special condition
             ssm_session_actions = [a for a in tagged_actions if a.startswith('ssm:') and 'Session' in a]
-            ssm_message_actions = [a for a in tagged_actions if a.startswith('ssmmessages:') or a.startswith('ec2messages:')]
-            other_tagged_actions = [a for a in tagged_actions if a not in ssm_session_actions and a not in ssm_message_actions]
-            
+            other_tagged_actions = [a for a in tagged_actions if a not in ssm_session_actions]
+
             # Regular tag-based actions
             if other_tagged_actions:
                 statements.append({
@@ -587,22 +681,36 @@ class RoleManager:
                         }
                     }
                 })
-            
-            # SSM Session actions with EC2 instance tag condition
+
+            # SSM Session actions: StartSession은 EC2 인스턴스, TerminateSession/ResumeSession은 세션 리소스
             if ssm_session_actions:
-                statements.append({
-                    "Sid": "SSMSessionAccess",
-                    "Effect": "Allow",
-                    "Action": list(set(ssm_session_actions)),
-                    "Resource": "arn:aws:ec2:*:*:instance/*",
-                    "Condition": {
-                        "StringEquals": {
-                            "ssm:resourceTag/Env": request.env,
-                            "ssm:resourceTag/Service": request.service,
+                ssm_start_actions = [a for a in ssm_session_actions if a == 'ssm:StartSession']
+                ssm_session_control_actions = [a for a in ssm_session_actions if a in ('ssm:TerminateSession', 'ssm:ResumeSession')]
+
+                # StartSession: EC2 인스턴스 태그 조건
+                if ssm_start_actions:
+                    statements.append({
+                        "Sid": "SSMSessionAccess",
+                        "Effect": "Allow",
+                        "Action": ssm_start_actions,
+                        "Resource": "arn:aws:ec2:*:*:instance/*",
+                        "Condition": {
+                            "StringEquals": {
+                                "ssm:resourceTag/Env": request.env,
+                                "ssm:resourceTag/Service": request.service,
+                            }
                         }
-                    }
-                })
-                
+                    })
+
+                # TerminateSession/ResumeSession: 세션 리소스 (태그 조건 없음)
+                if ssm_session_control_actions:
+                    statements.append({
+                        "Sid": "SSMSessionControl",
+                        "Effect": "Allow",
+                        "Action": ssm_session_control_actions,
+                        "Resource": "arn:aws:ssm:*:*:session/*",
+                    })
+
                 # Allow SSM document access for Session Manager
                 statements.append({
                     "Sid": "SSMDocumentAccess",
@@ -615,23 +723,23 @@ class RoleManager:
                         "arn:aws:ssm:*:*:document/SSM-SessionManagerRunShell"
                     ]
                 })
-            
-            # SSM Messages permissions (no resource restriction)
-            if ssm_message_actions:
-                statements.append({
-                    "Sid": "SSMMessagesAccess",
-                    "Effect": "Allow",
-                    "Action": list(set(ssm_message_actions)),
-                    "Resource": "*"
-                })
-        
-        # Statement 3: Create permissions with tag enforcement
+
+        # Statement 3: Create permissions with tag enforcement (CreateWithTags + AllowCreateTags 합침)
         if create_actions:
-            # Allow create with required tags
+            tag_actions = [
+                "ec2:CreateTags",
+                "rds:AddTagsToResource",
+                "lambda:TagResource",
+                "s3:PutBucketTagging",
+                "s3:PutObjectTagging",
+                "dynamodb:TagResource",
+                "autoscaling:CreateOrUpdateTags",
+                "elasticbeanstalk:AddTags",
+            ]
             statements.append({
                 "Sid": "CreateWithTags",
                 "Effect": "Allow",
-                "Action": list(set(create_actions)),
+                "Action": list(set(create_actions + tag_actions)),
                 "Resource": "*",
                 "Condition": {
                     "StringEquals": {
@@ -640,30 +748,7 @@ class RoleManager:
                     }
                 }
             })
-            
-            # Also allow CreateTags for new resources
-            statements.append({
-                "Sid": "AllowCreateTags",
-                "Effect": "Allow",
-                "Action": [
-                    "ec2:CreateTags",
-                    "rds:AddTagsToResource",
-                    "lambda:TagResource",
-                    "s3:PutBucketTagging",
-                    "s3:PutObjectTagging",
-                    "dynamodb:TagResource",
-                    "autoscaling:CreateOrUpdateTags",
-                    "elasticbeanstalk:AddTags",
-                ],
-                "Resource": "*",
-                "Condition": {
-                    "StringEquals": {
-                        "aws:RequestTag/Env": request.env,
-                        "aws:RequestTag/Service": request.service,
-                    }
-                }
-            })
-        
+
         # EB 서비스 포함 시, EB S3 Storage 버킷 전용 액세스 추가
         if 'elasticbeanstalk' in services_to_include:
             statements.append({
@@ -675,6 +760,11 @@ class RoleManager:
                     "s3:DeleteObject",
                     "s3:GetBucketLocation",
                     "s3:ListBucket",
+                    "s3:ListBucketMultipartUploads",
+                    "s3:AbortMultipartUpload",
+                    "s3:ListMultipartUploadParts",
+                    "s3:PutObjectAcl",
+                    "s3:GetObjectAcl",
                 ],
                 "Resource": [
                     f"arn:aws:s3:::elasticbeanstalk-ap-northeast-2-{self.account_id}",
