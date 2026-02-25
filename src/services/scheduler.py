@@ -66,10 +66,14 @@ class Scheduler:
         except self.scheduler_client.exceptions.ConflictException:
             # Schedule already exists, update it
             print(f"[Scheduler] Schedule already exists, updating: {schedule_name}")
-            response = self.scheduler_client.update_schedule(**schedule_params)
-            print(f"[Scheduler] Start schedule updated successfully: {response.get('ScheduleArn', 'N/A')}")
+            try:
+                response = self.scheduler_client.update_schedule(**schedule_params)
+                print(f"[Scheduler] Start schedule updated successfully: {response.get('ScheduleArn', 'N/A')}")
+            except Exception as update_err:
+                print(f"[Scheduler] ERROR updating start schedule '{schedule_name}': {update_err}")
+                raise
         except Exception as e:
-            print(f"[Scheduler] ERROR creating start schedule: {e}")
+            print(f"[Scheduler] ERROR creating start schedule '{schedule_name}': {e}")
             raise
 
         return schedule_name
@@ -112,10 +116,14 @@ class Scheduler:
         except self.scheduler_client.exceptions.ConflictException:
             # Schedule already exists, update it
             print(f"[Scheduler] Schedule already exists, updating: {schedule_name}")
-            response = self.scheduler_client.update_schedule(**schedule_params)
-            print(f"[Scheduler] End schedule updated successfully: {response.get('ScheduleArn', 'N/A')}")
+            try:
+                response = self.scheduler_client.update_schedule(**schedule_params)
+                print(f"[Scheduler] End schedule updated successfully: {response.get('ScheduleArn', 'N/A')}")
+            except Exception as update_err:
+                print(f"[Scheduler] ERROR updating end schedule '{schedule_name}': {update_err}")
+                raise
         except Exception as e:
-            print(f"[Scheduler] ERROR creating end schedule: {e}")
+            print(f"[Scheduler] ERROR creating end schedule '{schedule_name}': {e}")
             raise
 
         return schedule_name

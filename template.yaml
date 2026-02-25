@@ -256,6 +256,7 @@ Resources:
             - Effect: Allow
               Action:
                 - scheduler:CreateSchedule
+                - scheduler:UpdateSchedule
                 - scheduler:DeleteSchedule
               Resource: "*"
             - Effect: Allow
@@ -302,6 +303,7 @@ Resources:
             - Effect: Allow
               Action:
                 - scheduler:CreateSchedule
+                - scheduler:UpdateSchedule
                 - scheduler:DeleteSchedule
               Resource: "*"
             - Effect: Allow
@@ -346,6 +348,8 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref RoleRequestsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref WorkRequestsTable
         - Version: '2012-10-17'
           Statement:
             - Effect: Allow
@@ -464,6 +468,7 @@ Resources:
             - Effect: Allow
               Action:
                 - scheduler:CreateSchedule
+                - scheduler:UpdateSchedule
                 - scheduler:DeleteSchedule
               Resource: "*"
             - Effect: Allow
