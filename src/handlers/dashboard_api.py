@@ -15,12 +15,10 @@ from typing import Dict, Any, Optional, List
 from boto3.dynamodb.conditions import Key, Attr
 
 from models import (
-    VALID_SERVICES,
-    SERVICE_DISPLAY_NAMES,
-    VALID_ENVS,
     RoleRequest,
     RequestStatus,
 )
+from services.tag_config_service import get_valid_envs, get_valid_services, get_service_display_names
 from services.mattermost_client import MattermostClient, Attachment, Action, create_work_request_notification, create_approval_message
 from services.request_validator import RequestValidator
 
@@ -374,6 +372,25 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             request_id = path.split('/')[3]
             return revoke_ticket(event, request_id)
 
+        # Tag Config endpoints (admin only)
+        elif path == '/api/tags' and http_method == 'GET':
+            return get_tags(event, query_params)
+
+        elif path == '/api/tags' and http_method == 'POST':
+            body = json.loads(event.get('body', '{}'))
+            return create_tag_endpoint(event, body)
+
+        elif path.startswith('/api/tags/') and http_method == 'PUT':
+            tag_type = path.split('/')[3]
+            tag_value = path.split('/')[4] if len(path.split('/')) > 4 else ''
+            body = json.loads(event.get('body', '{}'))
+            return update_tag_endpoint(event, tag_type, tag_value, body)
+
+        elif path.startswith('/api/tags/') and http_method == 'DELETE':
+            tag_type = path.split('/')[3]
+            tag_value = path.split('/')[4] if len(path.split('/')) > 4 else ''
+            return delete_tag_endpoint(event, tag_type, tag_value)
+
         else:
             return response(404, {'error': '요청한 리소스를 찾을 수 없습니다'})
 
@@ -587,12 +604,14 @@ def get_services() -> Dict[str, Any]:
     GET /api/services
     Get list of available services with display names
     """
+    valid_services = get_valid_services()
+    display_names = get_service_display_names()
     services = []
-    for key in VALID_SERVICES:
+    for key in valid_services:
         services.append({
             'key': key,
-            'name': SERVICE_DISPLAY_NAMES.get(key, key),
-            'display': f"{key} ({SERVICE_DISPLAY_NAMES.get(key, key)})" if SERVICE_DISPLAY_NAMES.get(key) else key
+            'name': display_names.get(key, key),
+            'display': f"{key} ({display_names.get(key, key)})" if display_names.get(key) else key
         })
 
     return response(200, {
@@ -622,7 +641,7 @@ def create_work_request(body: Dict[str, Any]) -> Dict[str, Any]:
     service_name = body['service_name']
 
     # Validate service_name
-    if service_name not in VALID_SERVICES:
+    if service_name not in get_valid_services():
         return response(400, {'error': f'유효하지 않은 서비스명입니다: {service_name}', 'status': 'error'})
 
     # Generate request ID
@@ -636,7 +655,7 @@ def create_work_request(body: Dict[str, Any]) -> Dict[str, Any]:
     item = {
         'request_id': request_id,
         'service_name': service_name,
-        'service_display_name': SERVICE_DISPLAY_NAMES.get(service_name, service_name),
+        'service_display_name': get_service_display_names().get(service_name, service_name),
         'start_date': body['start_date'],
         'end_date': body['end_date'],
         'description': body['description'],
@@ -664,7 +683,7 @@ def create_work_request(body: Dict[str, Any]) -> Dict[str, Any]:
             # Use the same pattern as create_approval_message
             attachment = create_work_request_notification(
                 request_id=request_id,
-                service_name=SERVICE_DISPLAY_NAMES.get(service_name, service_name),
+                service_name=get_service_display_names().get(service_name, service_name),
                 requester_name=body['requester_name'],
                 start_date=start_date_display,
                 end_date=end_date_display,
@@ -1332,15 +1351,16 @@ def get_role_request_options(event: Dict[str, Any]) -> Dict[str, Any]:
     ]
 
     # Environment options
-    envs = [{'value': env, 'label': env} for env in VALID_ENVS]
+    envs = [{'value': env, 'label': env} for env in get_valid_envs()]
 
     # Service options
+    display_names = get_service_display_names()
     services = [
         {
             'value': svc,
-            'label': f"{svc} ({SERVICE_DISPLAY_NAMES.get(svc, svc)})" if SERVICE_DISPLAY_NAMES.get(svc) else svc
+            'label': f"{svc} ({display_names.get(svc, svc)})" if display_names.get(svc) else svc
         }
-        for svc in VALID_SERVICES
+        for svc in get_valid_services()
     ]
 
     # Get active work requests for dropdown
@@ -2393,6 +2413,127 @@ def revoke_ticket(event: Dict[str, Any], request_id: str) -> Dict[str, Any]:
         return response(500, {'error': f'권한 회수 중 오류가 발생했습니다: {str(e)}'})
 
 
+# ========== Tag Config Endpoints ==========
+
+def get_tags(event: Dict[str, Any], query_params: Dict[str, str]) -> Dict[str, Any]:
+    """
+    GET /api/tags?tag_type=env|service
+    Get all tags of the specified type (admin only)
+    """
+    user = get_current_user(event)
+    if not user:
+        return response(401, {'error': '인증이 필요합니다'})
+    if not user.get('is_admin'):
+        return response(403, {'error': '관리자 권한이 필요합니다'})
+
+    from services.tag_config_service import get_all_tags, seed_defaults, invalidate_cache
+
+    tag_type = query_params.get('tag_type', '')
+    if tag_type not in ('env', 'service'):
+        return response(400, {'error': 'tag_type은 env 또는 service여야 합니다'})
+
+    # Admin 페이지는 항상 최신 데이터 (Lambda 인스턴스 간 캐시 불일치 방지)
+    invalidate_cache()
+    items = get_all_tags(tag_type)
+
+    # Auto-seed if empty (first access)
+    if not items:
+        try:
+            seed_defaults()
+            invalidate_cache()
+            items = get_all_tags(tag_type)
+        except Exception as e:
+            print(f"[get_tags] seed_defaults error: {e}")
+
+    return response(200, {'tags': items, 'count': len(items)})
+
+
+def create_tag_endpoint(event: Dict[str, Any], body: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    POST /api/tags
+    Create a new tag (admin only)
+    """
+    user = get_current_user(event)
+    if not user:
+        return response(401, {'error': '인증이 필요합니다'})
+    if not user.get('is_admin'):
+        return response(403, {'error': '관리자 권한이 필요합니다'})
+
+    from services.tag_config_service import create_tag
+
+    tag_type = body.get('tag_type', '')
+    tag_value = body.get('tag_value', '').strip()
+    display_name = body.get('display_name', '').strip()
+    sort_order = int(body.get('sort_order', 100))
+
+    if tag_type not in ('env', 'service'):
+        return response(400, {'error': 'tag_type은 env 또는 service여야 합니다'})
+    if not tag_value:
+        return response(400, {'error': 'tag_value는 필수 항목입니다'})
+
+    try:
+        item = create_tag(tag_type, tag_value, display_name, sort_order)
+        return response(201, {'tag': item})
+    except Exception as e:
+        error_code = getattr(getattr(e, 'response', None), 'Error', {}).get('Code', '') if hasattr(e, 'response') else ''
+        if 'ConditionalCheckFailed' in str(e) or error_code == 'ConditionalCheckFailedException':
+            return response(409, {'error': f'이미 존재하는 태그입니다: {tag_value}'})
+        print(f"[create_tag_endpoint] Error: {e}")
+        return response(500, {'error': f'태그 생성 실패: {str(e)}'})
+
+
+def update_tag_endpoint(event: Dict[str, Any], tag_type: str, tag_value: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    PUT /api/tags/{tag_type}/{tag_value}
+    Update an existing tag (admin only)
+    """
+    user = get_current_user(event)
+    if not user:
+        return response(401, {'error': '인증이 필요합니다'})
+    if not user.get('is_admin'):
+        return response(403, {'error': '관리자 권한이 필요합니다'})
+
+    from services.tag_config_service import update_tag
+    import urllib.parse
+    tag_value = urllib.parse.unquote(tag_value)
+
+    display_name = body.get('display_name')
+    sort_order = body.get('sort_order')
+    new_tag_value = body.get('new_tag_value', '').strip() or None
+    if sort_order is not None:
+        sort_order = int(sort_order)
+
+    try:
+        item = update_tag(tag_type, tag_value, display_name, sort_order, new_tag_value)
+        return response(200, {'tag': item})
+    except Exception as e:
+        print(f"[update_tag_endpoint] Error: {e}")
+        return response(500, {'error': f'태그 수정 실패: {str(e)}'})
+
+
+def delete_tag_endpoint(event: Dict[str, Any], tag_type: str, tag_value: str) -> Dict[str, Any]:
+    """
+    DELETE /api/tags/{tag_type}/{tag_value}
+    Delete a tag (admin only)
+    """
+    user = get_current_user(event)
+    if not user:
+        return response(401, {'error': '인증이 필요합니다'})
+    if not user.get('is_admin'):
+        return response(403, {'error': '관리자 권한이 필요합니다'})
+
+    from services.tag_config_service import delete_tag
+    import urllib.parse
+    tag_value = urllib.parse.unquote(tag_value)
+
+    try:
+        delete_tag(tag_type, tag_value)
+        return response(200, {'message': '태그가 삭제되었습니다'})
+    except Exception as e:
+        print(f"[delete_tag_endpoint] Error: {e}")
+        return response(500, {'error': f'태그 삭제 실패: {str(e)}'})
+
+
 def response(status_code: int, body: Dict[str, Any]) -> Dict[str, Any]:
     """Create API Gateway response with CORS headers"""
     return {
@@ -2401,7 +2542,7 @@ def response(status_code: int, body: Dict[str, Any]) -> Dict[str, Any]:
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-API-Key',
-            'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS'
+            'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS'
         },
         'body': json.dumps(body, default=str)
     }

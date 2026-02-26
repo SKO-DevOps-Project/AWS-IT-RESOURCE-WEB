@@ -2198,3 +2198,91 @@ body.modal-open {
     order: 10;
   }
 }
+
+/* ========== Tag Management ========== */
+.tag-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 24px;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.tag-tab {
+  padding: 10px 24px;
+  border: none;
+  background: none;
+  font-size: 14px;
+  font-weight: 600;
+  color: #6b7280;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: all 0.2s;
+}
+
+.tag-tab:hover {
+  color: #4f46e5;
+}
+
+.tag-tab.active {
+  color: #4f46e5;
+  border-bottom-color: #4f46e5;
+}
+
+.tag-add-form {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.tag-add-form-fields {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.tag-add-form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.tag-input {
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  min-width: 160px;
+}
+
+.tag-input:focus {
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
+}
+
+.tag-input-small {
+  min-width: 80px;
+  max-width: 100px;
+}
+
+/* Tag table action buttons (uses existing action-btn pattern) */
+.action-btn-edit {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.action-btn-edit:hover:not(:disabled) {
+  background: #e5e7eb;
+}
+
+.action-btn-delete {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.action-btn-delete:hover:not(:disabled) {
+  background: #fee2e2;
+}
+

@@ -86,6 +86,9 @@ const Sidebar: React.FC = () => {
             <NavLink to="/admin/approval" className={({ isActive }) => isActive ? 'nav-item nav-item-sub active' : 'nav-item nav-item-sub'}>
               <span className="nav-text">권한 승인/반려</span>
             </NavLink>
+            <NavLink to="/admin/tags" className={({ isActive }) => isActive ? 'nav-item nav-item-sub active' : 'nav-item nav-item-sub'}>
+              <span className="nav-text">태그 설정</span>
+            </NavLink>
           </div>
         )}
 

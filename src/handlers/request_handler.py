@@ -13,10 +13,8 @@ from models import (
     RoleRequest,
     RequestStatus,
     ValidationResult,
-    VALID_ENVS,
-    VALID_SERVICES,
-    SERVICE_DISPLAY_NAMES,
 )
+from services.tag_config_service import get_valid_envs, get_valid_services, get_service_display_names
 from services.request_validator import RequestValidator
 from services.mattermost_client import (
     MattermostClient,
@@ -33,18 +31,20 @@ REQUEST_CHANNEL_ID = os.environ.get("REQUEST_CHANNEL_ID", "")
 KST = timezone(timedelta(hours=9))
 
 
-REQUEST_TEMPLATE = """------------
-- IAM user명 : 
+def get_request_template():
+    """Generate request template with dynamic env/service values"""
+    return """------------
+- IAM user명 :
 - Env (고유 Env: {envs})
 - Service (고유 Service: {services})
 - 시간 : ex, 09-18시 또는 2025-01-15 09:00 ~ 2025-01-15 18:00
-- 목적 : 
+- 목적 :
 ------------
 
 위 템플릿을 복사하여 작성해주세요.""".format(
-    envs=" / ".join(VALID_ENVS),
-    services=", ".join(VALID_SERVICES),
-)
+        envs=" / ".join(get_valid_envs()),
+        services=", ".join(get_valid_services()),
+    )
 
 
 def create_request_dialog(
@@ -101,7 +101,7 @@ def create_request_dialog(
             "name": "env",
             "type": "select",
             "options": [
-                {"text": env, "value": env} for env in VALID_ENVS
+                {"text": env, "value": env} for env in get_valid_envs()
             ],
             "help_text": "환경을 선택하세요",
         },
@@ -111,9 +111,9 @@ def create_request_dialog(
             "type": "select",
             "options": [
                 {
-                    "text": f"{svc} ({SERVICE_DISPLAY_NAMES.get(svc, svc)})" if SERVICE_DISPLAY_NAMES.get(svc) else svc,
+                    "text": f"{svc} ({_svc_display.get(svc, svc)})" if _svc_display.get(svc) else svc,
                     "value": svc
-                } for svc in VALID_SERVICES
+                } for _svc_display in [get_service_display_names()] for svc in get_valid_services()
             ],
             "help_text": "서비스를 선택하세요",
         },
@@ -139,16 +139,16 @@ def create_request_dialog(
             "type": "select",
             "default": "all",
             "options": [
-                {"text": "전체 (EC2+SSM, RDS, Lambda, S3, EB, DynamoDB, ELB, Route53, Amplify)", "value": "all"},
-                {"text": "EC2만 (SSM 접속 포함)", "value": "ec2"},
-                {"text": "RDS만", "value": "rds"},
-                {"text": "Lambda만", "value": "lambda"},
-                {"text": "S3만", "value": "s3"},
-                {"text": "ElasticBeanstalk만", "value": "elasticbeanstalk"},
-                {"text": "DynamoDB만", "value": "dynamodb"},
-                {"text": "ELB (로드밸런서)만", "value": "elasticloadbalancing"},
-                {"text": "Route53 (DNS)만", "value": "route53"},
-                {"text": "Amplify (웹 호스팅)만", "value": "amplify"},
+                {"text": "전체", "value": "all"},
+                {"text": "EC2 (SSM 접속 포함)", "value": "ec2"},
+                {"text": "RDS", "value": "rds"},
+                {"text": "Lambda", "value": "lambda"},
+                {"text": "S3", "value": "s3"},
+                {"text": "ElasticBeanstalk", "value": "elasticbeanstalk"},
+                {"text": "DynamoDB", "value": "dynamodb"},
+                {"text": "ELB (로드밸런서)", "value": "elasticloadbalancing"},
+                {"text": "Route53 (DNS)", "value": "route53"},
+                {"text": "Amplify (웹 호스팅)", "value": "amplify"},
             ],
             "help_text": "권한이 필요한 AWS 서비스를 선택하세요",
         },
@@ -300,8 +300,8 @@ class RequestHandler:
                 except Exception as e:
                     print(f"Failed to open dialog: {e}")
                     # Fallback to template
-                    return self._response(REQUEST_TEMPLATE)
-            return self._response(REQUEST_TEMPLATE)
+                    return self._response(get_request_template())
+            return self._response(get_request_template())
         
         # Parse the request (for backward compatibility with text input)
         parsed = self._parse_request_text(text)

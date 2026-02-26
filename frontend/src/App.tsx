@@ -12,6 +12,7 @@ import ActivityList from './pages/ActivityList';
 import RoleRequestForm from './pages/RoleRequestForm';
 import AdminRoleGrantForm from './pages/AdminRoleGrantForm';
 import AdminTicketApproval from './pages/AdminTicketApproval';
+import AdminTagManagement from './pages/AdminTagManagement';
 import './App.css';
 
 function App() {
@@ -34,6 +35,7 @@ function App() {
                       <Route path="/role-requests/new" element={<RoleRequestForm />} />
                       <Route path="/admin/role-grant" element={<AdminRoleGrantForm />} />
                       <Route path="/admin/approval" element={<AdminTicketApproval />} />
+                      <Route path="/admin/tags" element={<AdminTagManagement />} />
                       <Route path="/tickets/:requestId" element={<TicketDetail />} />
                       <Route path="/activities" element={<ActivityList />} />
                     </Routes>

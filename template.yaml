@@ -208,6 +208,30 @@ Resources:
         - Key: Owner
           Value: N1104365
 
+  # TagConfig DynamoDB Table (Environment/Service 태그 설정)
+  TagConfigTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: TagConfig
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: tag_type
+          AttributeType: S
+        - AttributeName: tag_value
+          AttributeType: S
+      KeySchema:
+        - AttributeName: tag_type
+          KeyType: HASH
+        - AttributeName: tag_value
+          KeyType: RANGE
+      Tags:
+        - Key: Env
+          Value: infra
+        - Key: Service
+          Value: infra
+        - Key: Owner
+          Value: N1104365
+
   # API Gateway
   RoleRequestApi:
     Type: AWS::Serverless::Api
@@ -230,11 +254,14 @@ Resources:
         Variables:
           SCHEDULER_ROLE_ARN: !GetAtt SchedulerExecutionRole.Arn
           ROLE_MANAGER_LAMBDA_ARN: !GetAtt RoleManagerFunction.Arn
+          TAG_CONFIG_TABLE: TagConfig
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref RoleRequestsTable
         - DynamoDBReadPolicy:
             TableName: !Ref WorkRequestsTable
+        - DynamoDBReadPolicy:
+            TableName: TagConfig
         - Version: '2012-10-17'
           Statement:
             - Effect: Allow
@@ -434,6 +461,7 @@ Resources:
           APPROVAL_CHANNEL_ID: !Ref ApprovalChannelId
           SCHEDULER_ROLE_ARN: !GetAtt SchedulerExecutionRole.Arn
           ROLE_MANAGER_LAMBDA_ARN: !GetAtt RoleManagerFunction.Arn
+          TAG_CONFIG_TABLE: TagConfig
       Policies:
         - DynamoDBCrudPolicy:
             TableName: RoleRequests
@@ -447,6 +475,8 @@ Resources:
             TableName: Users
         - DynamoDBReadPolicy:
             TableName: TeamMembers
+        - DynamoDBCrudPolicy:
+            TableName: TagConfig
         - Version: '2012-10-17'
           Statement:
             - Effect: Allow
@@ -753,6 +783,19 @@ Resources:
             RestApiId: !Ref RoleRequestApi
             Path: /api/role-requests/admin
             Method: OPTIONS
+        # Tag Config endpoints (consolidated to reduce Lambda policy size)
+        TagsProxy:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/tags
+            Method: ANY
+        TagsDetailProxy:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/tags/{tag_type}/{tag_value}
+            Method: ANY
       Tags:
         Env: prod
         Service: infra

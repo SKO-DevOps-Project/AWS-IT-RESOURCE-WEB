@@ -300,4 +300,42 @@ export const revokeTicket = async (requestId: string) => {
   return response.data;
 };
 
+// Tag Config APIs (admin)
+export interface TagConfig {
+  tag_type: string;
+  tag_value: string;
+  display_name: string;
+  sort_order: number;
+  created_at: string;
+}
+
+export const getTags = async (tagType: string) => {
+  const response = await api.get('/tags', { params: { tag_type: tagType } });
+  return response.data;
+};
+
+export const createTagConfig = async (data: {
+  tag_type: string;
+  tag_value: string;
+  display_name?: string;
+  sort_order?: number;
+}) => {
+  const response = await api.post('/tags', data);
+  return response.data;
+};
+
+export const updateTagConfig = async (
+  tagType: string,
+  tagValue: string,
+  data: { display_name?: string; sort_order?: number; new_tag_value?: string }
+) => {
+  const response = await api.put(`/tags/${tagType}/${encodeURIComponent(tagValue)}`, data);
+  return response.data;
+};
+
+export const deleteTagConfig = async (tagType: string, tagValue: string) => {
+  const response = await api.delete(`/tags/${tagType}/${encodeURIComponent(tagValue)}`);
+  return response.data;
+};
+
 export default api;

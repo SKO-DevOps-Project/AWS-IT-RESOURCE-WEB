@@ -6,11 +6,8 @@ from typing import Optional
 import boto3
 from botocore.exceptions import ClientError
 
-from models import (
-    ValidationResult,
-    VALID_ENVS,
-    VALID_SERVICES,
-)
+from models import ValidationResult
+from services.tag_config_service import get_valid_envs, get_valid_services
 
 # Korea Standard Time (UTC+9)
 KST = timezone(timedelta(hours=9))
@@ -101,15 +98,16 @@ class RequestValidator:
     
     def _validate_env(self, result: ValidationResult, env: str) -> None:
         """Validate env is one of valid options"""
-        if env and env not in VALID_ENVS:
+        valid_envs = get_valid_envs()
+        if env and env not in valid_envs:
             result.add_error(
                 "env",
-                f"유효하지 않은 Env입니다. ({', '.join(VALID_ENVS)} 중 선택)"
+                f"유효하지 않은 Env입니다. ({', '.join(valid_envs)} 중 선택)"
             )
-    
+
     def _validate_service(self, result: ValidationResult, service: str) -> None:
         """Validate service is one of valid options"""
-        if service and service not in VALID_SERVICES:
+        if service and service not in get_valid_services():
             result.add_error(
                 "service",
                 f"유효하지 않은 Service입니다."
