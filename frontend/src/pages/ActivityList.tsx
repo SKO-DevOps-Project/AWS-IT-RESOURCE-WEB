@@ -32,7 +32,7 @@ const ActivityList: React.FC = () => {
   const loadActivities = async () => {
     setLoading(true);
     try {
-      const params: any = { limit: 200 };
+      const params: any = { limit: 500 };
       if (userFilter) params.user_name = userFilter;
       if (eventFilter) params.event_name = eventFilter;
       const data = await getActivities(params);

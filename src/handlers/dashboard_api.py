@@ -552,11 +552,10 @@ def get_activities(query_params: Dict[str, str]) -> Dict[str, Any]:
             query_kwargs['FilterExpression'] = Attr('event_name').contains(event_name)
 
         result = activity_logs_table.query(**query_kwargs)
+        items = result.get('Items', [])
     else:
-        # Scan without user filter
-        scan_kwargs = {
-            'Limit': limit
-        }
+        # Scan without user filter - paginate to get all items
+        scan_kwargs = {}
 
         filter_expressions = []
         expression_values = {}
@@ -577,12 +576,19 @@ def get_activities(query_params: Dict[str, str]) -> Dict[str, Any]:
             scan_kwargs['FilterExpression'] = ' AND '.join(filter_expressions)
             scan_kwargs['ExpressionAttributeValues'] = expression_values
 
-        result = activity_logs_table.scan(**scan_kwargs)
-
-    items = result.get('Items', [])
+        items = []
+        while True:
+            result = activity_logs_table.scan(**scan_kwargs)
+            items.extend(result.get('Items', []))
+            if 'LastEvaluatedKey' not in result:
+                break
+            scan_kwargs['ExclusiveStartKey'] = result['LastEvaluatedKey']
 
     # Sort by event_time descending
     items.sort(key=lambda x: x.get('event_time', ''), reverse=True)
+
+    # Apply limit
+    items = items[:limit]
 
     return response(200, {
         'activities': items,
