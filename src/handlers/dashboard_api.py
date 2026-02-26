@@ -4,6 +4,7 @@ Provides REST API for the dashboard frontend
 """
 import os
 import json
+import time
 import uuid
 import hashlib
 import secrets
@@ -51,6 +52,13 @@ ADMIN_USER_IDS = os.environ.get('ADMIN_USER_IDS', '').split(',')
 
 # External login API (SKONS)
 SKONS_LOGIN_URL = os.environ.get('SKONS_LOGIN_URL', 'https://auth.skons.net/accounts/sko/sso/login/')
+
+# Activity logs cache (Lambda instance-level)
+_activities_cache = {
+    'items': None,
+    'timestamp': 0
+}
+ACTIVITIES_CACHE_TTL = 30  # seconds
 
 
 def hash_api_key(api_key: str) -> str:
@@ -554,25 +562,36 @@ def get_activities(query_params: Dict[str, str]) -> Dict[str, Any]:
         result = activity_logs_table.query(**query_kwargs)
         items = result.get('Items', [])
     else:
-        # Scan without user filter - paginate to get all items
+        has_filters = start_time or end_time or event_name
+
+        # Use cache for unfiltered full scan
+        if not has_filters:
+            now = time.time()
+            if _activities_cache['items'] is not None and (now - _activities_cache['timestamp']) < ACTIVITIES_CACHE_TTL:
+                return response(200, {
+                    'activities': _activities_cache['items'][:limit],
+                    'count': min(len(_activities_cache['items']), limit)
+                })
+
+        # Scan with pagination
         scan_kwargs = {}
 
-        filter_expressions = []
-        expression_values = {}
+        if has_filters:
+            filter_expressions = []
+            expression_values = {}
 
-        if start_time:
-            filter_expressions.append('event_time >= :start_time')
-            expression_values[':start_time'] = start_time
+            if start_time:
+                filter_expressions.append('event_time >= :start_time')
+                expression_values[':start_time'] = start_time
 
-        if end_time:
-            filter_expressions.append('event_time <= :end_time')
-            expression_values[':end_time'] = end_time
+            if end_time:
+                filter_expressions.append('event_time <= :end_time')
+                expression_values[':end_time'] = end_time
 
-        if event_name:
-            filter_expressions.append('contains(event_name, :event_name)')
-            expression_values[':event_name'] = event_name
+            if event_name:
+                filter_expressions.append('contains(event_name, :event_name)')
+                expression_values[':event_name'] = event_name
 
-        if filter_expressions:
             scan_kwargs['FilterExpression'] = ' AND '.join(filter_expressions)
             scan_kwargs['ExpressionAttributeValues'] = expression_values
 
@@ -584,8 +603,13 @@ def get_activities(query_params: Dict[str, str]) -> Dict[str, Any]:
                 break
             scan_kwargs['ExclusiveStartKey'] = result['LastEvaluatedKey']
 
-    # Sort by event_time descending
-    items.sort(key=lambda x: x.get('event_time', ''), reverse=True)
+        # Sort by event_time descending
+        items.sort(key=lambda x: x.get('event_time', ''), reverse=True)
+
+        # Update cache for unfiltered results
+        if not has_filters:
+            _activities_cache['items'] = items
+            _activities_cache['timestamp'] = time.time()
 
     # Apply limit
     items = items[:limit]
