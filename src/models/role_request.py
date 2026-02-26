@@ -43,6 +43,8 @@ class TargetService(Enum):
     ELASTICBEANSTALK = "elasticbeanstalk"
     DYNAMODB = "dynamodb"
     ELASTICLOADBALANCING = "elasticloadbalancing"
+    ROUTE53 = "route53"
+    AMPLIFY = "amplify"
     ALL = "all"
 
 
@@ -129,6 +131,8 @@ class RoleRequest:
     post_id: Optional[str] = None
     is_master_request: bool = False
     work_request_id: Optional[str] = None  # 연결된 업무 요청 ID
+    include_parameter_store: bool = False
+    include_secrets_manager: bool = False
 
     def to_dict(self) -> dict:
         """Convert to dictionary for DynamoDB storage
@@ -152,6 +156,8 @@ class RoleRequest:
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "is_master_request": self.is_master_request,
+            "include_parameter_store": self.include_parameter_store,
+            "include_secrets_manager": self.include_secrets_manager,
         }
 
         # Optional fields - only include if not None
@@ -195,4 +201,6 @@ class RoleRequest:
             post_id=data.get("post_id"),
             is_master_request=data.get("is_master_request", False),
             work_request_id=data.get("work_request_id"),
+            include_parameter_store=data.get("include_parameter_store", False),
+            include_secrets_manager=data.get("include_secrets_manager", False),
         )

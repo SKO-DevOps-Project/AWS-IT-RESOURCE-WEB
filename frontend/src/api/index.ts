@@ -131,6 +131,7 @@ export interface User {
 export interface RoleRequestOption {
   value: string;
   label: string;
+  admin_only?: boolean;
 }
 
 export interface RoleRequestOptionsResponse {
@@ -152,11 +153,13 @@ export interface RoleRequestFormData {
   env: string;
   service: string;
   permission_type: string;
-  target_services: string;
+  target_services: string[];
   start_time?: string;
   end_time: string;
   purpose: string;
   work_request_id?: string;
+  include_parameter_store?: boolean;
+  include_secrets_manager?: boolean;
 }
 
 export interface AdminRoleGrantFormData extends RoleRequestFormData {

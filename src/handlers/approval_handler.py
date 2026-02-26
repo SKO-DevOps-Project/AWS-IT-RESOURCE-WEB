@@ -284,6 +284,8 @@ class ApprovalHandler:
                                 "elasticbeanstalk": "ElasticBeanstalk",
                                 "dynamodb": "DynamoDB",
                                 "elasticloadbalancing": "ELB",
+                                "route53": "Route53",
+                                "amplify": "Amplify",
                             }
                             
                             perm_display = permission_type_names.get(
@@ -348,6 +350,16 @@ class ApprovalHandler:
                                        f"**Env:** {request.env} | **Service:** {request.service}\n"
                                        f"**권한 유형:** {perm_display} | **대상 서비스:** {target_display}",
                             )
+
+                            # Send extra permissions info
+                            extras = []
+                            if getattr(request, 'include_parameter_store', False): extras.append("Parameter Store")
+                            if getattr(request, 'include_secrets_manager', False): extras.append("Secrets Manager")
+                            if extras:
+                                self.mattermost_client.send_dm(
+                                    user_id=request.requester_mattermost_id,
+                                    message=f"**추가 권한:** {' + '.join(extras)} (읽기전용)",
+                                )
                         except Exception as e:
                             print(f"[handle_approve] Failed to send DM: {e}")
                     

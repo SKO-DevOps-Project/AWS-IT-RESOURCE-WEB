@@ -364,6 +364,8 @@ def create_approval_message(
     callback_url: str,
     permission_type: str = "read_update",
     target_services: str = "all",
+    include_parameter_store: bool = False,
+    include_secrets_manager: bool = False,
 ) -> Attachment:
     """
     Create an approval request message attachment
@@ -394,31 +396,44 @@ def create_approval_message(
     
     # Target service display names
     target_service_names = {
-        "all": "전체 (EC2+SSM, RDS, Lambda, S3)",
+        "all": "전체 (EC2+SSM, RDS, Lambda, S3, EB, DynamoDB, ELB, Route53, Amplify)",
         "ec2": "EC2 (SSM 접속 포함)",
         "rds": "RDS",
         "lambda": "Lambda",
         "s3": "S3",
+        "elasticbeanstalk": "ElasticBeanstalk",
+        "dynamodb": "DynamoDB",
+        "elasticloadbalancing": "ELB",
+        "route53": "Route53",
+        "amplify": "Amplify",
     }
     
     perm_display = permission_type_names.get(permission_type, permission_type)
     target_display = target_service_names.get(target_services, target_services)
-    
+
+    fields = [
+        {"short": True, "title": "요청자", "value": requester_name},
+        {"short": True, "title": "IAM User", "value": iam_user_name},
+        {"short": True, "title": "Environment", "value": env},
+        {"short": True, "title": "Service", "value": service},
+        {"short": True, "title": "권한 유형", "value": perm_display},
+        {"short": True, "title": "대상 서비스", "value": target_display},
+        {"short": True, "title": "시작 시간", "value": f"{start_time} (KST)"},
+        {"short": True, "title": "종료 시간", "value": f"{end_time} (KST)"},
+        {"short": False, "title": "목적", "value": purpose},
+    ]
+
+    extras = []
+    if include_parameter_store: extras.append("Parameter Store")
+    if include_secrets_manager: extras.append("Secrets Manager")
+    if extras:
+        fields.append({"short": True, "title": "추가 권한", "value": " + ".join(extras) + " (읽기전용)"})
+
     return Attachment(
         fallback=f"Role request from {requester_name}",
         color="#FFA500",
         title=f"🔐 AWS Role 권한 요청",
-        fields=[
-            {"short": True, "title": "요청자", "value": requester_name},
-            {"short": True, "title": "IAM User", "value": iam_user_name},
-            {"short": True, "title": "Environment", "value": env},
-            {"short": True, "title": "Service", "value": service},
-            {"short": True, "title": "권한 유형", "value": perm_display},
-            {"short": True, "title": "대상 서비스", "value": target_display},
-            {"short": True, "title": "시작 시간", "value": f"{start_time} (KST)"},
-            {"short": True, "title": "종료 시간", "value": f"{end_time} (KST)"},
-            {"short": False, "title": "목적", "value": purpose},
-        ],
+        fields=fields,
         actions=[
             {
                 "id": "approve",

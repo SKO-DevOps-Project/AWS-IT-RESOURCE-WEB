@@ -29,6 +29,10 @@ SERVICE_PERMISSIONS = {
             "ssm:GetConnectionStatus",
             "ssm:DescribeInstanceInformation",
             "ssm:DescribeInstanceProperties",
+            # EC2 Instance Profile - Read permissions
+            "iam:ListInstanceProfiles",
+            "iam:GetInstanceProfile",
+            "ec2:DescribeIamInstanceProfileAssociations",
         ],
         "update": [
             "ec2:StartInstances",
@@ -38,6 +42,9 @@ SERVICE_PERMISSIONS = {
             "ec2:ModifyVolume*",
             "ec2:CreateTags",
             "ec2:DeleteTags",
+            # EC2 Instance Profile - Update permissions
+            "ec2:AssociateIamInstanceProfile",
+            "ec2:ReplaceIamInstanceProfileAssociation",
             # EC2 Instance Connect
             "ec2-instance-connect:SendSSHPublicKey",
             "ec2-instance-connect:SendSerialConsoleSSHPublicKey",
@@ -80,6 +87,8 @@ SERVICE_PERMISSIONS = {
             "ec2:DeleteKeyPair",
             "ec2:ReleaseAddress",
             "ec2:DisassociateAddress",
+            # EC2 Instance Profile - Delete permissions
+            "ec2:DisassociateIamInstanceProfile",
         ],
     },
     "rds": {
@@ -417,6 +426,54 @@ SERVICE_PERMISSIONS = {
             "elasticloadbalancing:DeleteRule",
         ],
     },
+    "route53": {
+        "read": [
+            "route53:Get*",
+            "route53:List*",
+            "route53:TestDNSAnswer",
+            "route53domains:Get*",
+            "route53domains:List*",
+        ],
+        "update": [
+            "route53:ChangeResourceRecordSets",
+            "route53:ChangeTagsForResource",
+        ],
+        "create": [
+            "route53:CreateHostedZone",
+            "route53:CreateHealthCheck",
+        ],
+        "delete": [
+            "route53:DeleteHostedZone",
+            "route53:DeleteHealthCheck",
+        ],
+    },
+    "amplify": {
+        "read": [
+            "amplify:Get*",
+            "amplify:List*",
+        ],
+        "update": [
+            "amplify:UpdateApp",
+            "amplify:UpdateBranch",
+            "amplify:UpdateDomainAssociation",
+            "amplify:StartDeployment",
+            "amplify:StopDeployment",
+            "amplify:StartJob",
+            "amplify:StopJob",
+        ],
+        "create": [
+            "amplify:CreateApp",
+            "amplify:CreateBranch",
+            "amplify:CreateDeployment",
+            "amplify:CreateDomainAssociation",
+        ],
+        "delete": [
+            "amplify:DeleteApp",
+            "amplify:DeleteBranch",
+            "amplify:DeleteDomainAssociation",
+            "amplify:DeleteJob",
+        ],
+    },
 }
 
 
@@ -612,10 +669,13 @@ class RoleManager:
         
         # Determine which services to include
         if 'all' in target_services:
-            services_to_include = ['ec2', 'rds', 'lambda', 's3', 'elasticbeanstalk', 'dynamodb', 'elasticloadbalancing']
+            services_to_include = ['ec2', 'rds', 'lambda', 's3', 'elasticbeanstalk', 'dynamodb', 'elasticloadbalancing', 'route53', 'amplify']
         else:
             services_to_include = target_services
         
+        # Services that don't support tag-based conditions
+        NO_TAG_CONDITION_SERVICES = ['route53', 'amplify']
+
         # Collect actions based on permission type
         read_actions = []
         tagged_actions = []
@@ -628,14 +688,24 @@ class RoleManager:
                 # Always include read permissions
                 read_actions.extend(perms.get('read', []))
 
-                if permission_type in ['read_update', 'read_update_create', 'full']:
-                    tagged_actions.extend(perms.get('update', []))
+                if svc in NO_TAG_CONDITION_SERVICES:
+                    # No tag condition — all actions go to read_actions (unconditioned)
+                    if permission_type in ['read_update', 'read_update_create', 'full']:
+                        read_actions.extend(perms.get('update', []))
+                    if permission_type in ['read_update_create', 'full']:
+                        read_actions.extend(perms.get('create', []))
+                    if permission_type == 'full':
+                        read_actions.extend(perms.get('delete', []))
+                else:
+                    # Tag-based condition services
+                    if permission_type in ['read_update', 'read_update_create', 'full']:
+                        tagged_actions.extend(perms.get('update', []))
 
-                if permission_type in ['read_update_create', 'full']:
-                    create_actions.extend(perms.get('create', []))
+                    if permission_type in ['read_update_create', 'full']:
+                        create_actions.extend(perms.get('create', []))
 
-                if permission_type == 'full':
-                    tagged_actions.extend(perms.get('delete', []))
+                    if permission_type == 'full':
+                        tagged_actions.extend(perms.get('delete', []))
 
         # EB 서비스: 태그를 지원하지 않는 배포 액션을 조건 없는 액션에 포함
         if 'elasticbeanstalk' in services_to_include:
@@ -747,6 +817,42 @@ class RoleManager:
                         "aws:RequestTag/Service": request.service,
                     }
                 }
+            })
+
+        # EC2 + read_update 이상일 때 PassRole Statement 추가
+        if 'ec2' in services_to_include:
+            if permission_type in ['read_update', 'read_update_create', 'full']:
+                statements.append({
+                    "Sid": "PassRoleForEC2",
+                    "Effect": "Allow",
+                    "Action": "iam:PassRole",
+                    "Resource": "*",
+                    "Condition": {"StringEquals": {"iam:PassedToService": "ec2.amazonaws.com"}}
+                })
+
+        # Parameter Store / Secrets Manager 읽기 권한 (체크박스 기반)
+        if getattr(request, 'include_parameter_store', False):
+            read_actions_extra = [
+                "ssm:GetParameter", "ssm:GetParameters",
+                "ssm:GetParametersByPath", "ssm:DescribeParameters",
+            ]
+            statements.append({
+                "Sid": "ParameterStoreReadAccess",
+                "Effect": "Allow",
+                "Action": read_actions_extra,
+                "Resource": "*",
+            })
+
+        if getattr(request, 'include_secrets_manager', False):
+            read_actions_extra = [
+                "secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret",
+                "secretsmanager:ListSecrets", "secretsmanager:ListSecretVersionIds",
+            ]
+            statements.append({
+                "Sid": "SecretsManagerReadAccess",
+                "Effect": "Allow",
+                "Action": read_actions_extra,
+                "Resource": "*",
             })
 
         # EB 서비스 포함 시, EB S3 Storage 버킷 전용 액세스 추가

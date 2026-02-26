@@ -1831,6 +1831,80 @@ body.modal-open {
   }
 }
 
+/* Checkbox Group (추가 권한 등) */
+.checkbox-group {
+  margin-top: 16px;
+}
+
+.checkbox-group-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 10px;
+  display: block;
+}
+
+.checkbox-options {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.checkbox-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+  color: #374151;
+  user-select: none;
+}
+
+.checkbox-option:hover {
+  border-color: #4f46e5;
+  background: #fafafe;
+}
+
+.checkbox-option.checked {
+  border-color: #4f46e5;
+  background: #eef2ff;
+  color: #4338ca;
+  font-weight: 500;
+}
+
+.checkbox-option.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.checkbox-option.disabled:hover {
+  border-color: #e5e7eb;
+  background: #fff;
+}
+
+.checkbox-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #4f46e5;
+  cursor: pointer;
+  margin: 0;
+}
+
+.checkbox-option.disabled input[type="checkbox"] {
+  cursor: not-allowed;
+}
+
+.checkbox-hint {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 6px;
+}
+
 /* Admin badge inline */
 .admin-badge-inline {
   display: inline-flex;

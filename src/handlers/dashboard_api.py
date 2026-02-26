@@ -1314,20 +1314,21 @@ def get_role_request_options(event: Dict[str, Any]) -> Dict[str, Any]:
     permission_types = [
         {'value': 'read_only', 'label': '조회만 (Read Only)'},
         {'value': 'read_update', 'label': '조회 + 수정 (Read + Update)'},
-        {'value': 'read_update_create', 'label': '조회 + 수정 + 생성'},
-        {'value': 'full', 'label': '전체 (Full - 삭제 포함)'},
+        {'value': 'read_update_create', 'label': '조회 + 수정 + 생성', 'admin_only': True},
+        {'value': 'full', 'label': '전체 (Full - 삭제 포함)', 'admin_only': True},
     ]
 
     # Target service options
     target_services = [
-        {'value': 'all', 'label': '전체 (EC2+SSM, RDS, Lambda, S3, EB, DynamoDB, ELB)'},
-        {'value': 'ec2', 'label': 'EC2만 (SSM 접속 포함)'},
-        {'value': 'rds', 'label': 'RDS만'},
-        {'value': 'lambda', 'label': 'Lambda만'},
-        {'value': 's3', 'label': 'S3만'},
-        {'value': 'elasticbeanstalk', 'label': 'ElasticBeanstalk만'},
-        {'value': 'dynamodb', 'label': 'DynamoDB만'},
-        {'value': 'elasticloadbalancing', 'label': 'ELB (로드밸런서)만'},
+        {'value': 'ec2', 'label': 'EC2 (SSM 접속 포함)'},
+        {'value': 'rds', 'label': 'RDS'},
+        {'value': 'lambda', 'label': 'Lambda'},
+        {'value': 's3', 'label': 'S3'},
+        {'value': 'elasticbeanstalk', 'label': 'ElasticBeanstalk'},
+        {'value': 'dynamodb', 'label': 'DynamoDB'},
+        {'value': 'elasticloadbalancing', 'label': 'ELB (로드밸런서)'},
+        {'value': 'route53', 'label': 'Route53 (DNS)'},
+        {'value': 'amplify', 'label': 'Amplify (웹 호스팅)'},
     ]
 
     # Environment options
@@ -1405,11 +1406,19 @@ def create_role_request(event: Dict[str, Any], body: Dict[str, Any]) -> Dict[str
     env = body.get('env', '')
     service = body.get('service', '')
     permission_type = body.get('permission_type', 'read_update')
-    target_services = body.get('target_services', 'all')
+    target_services_raw = body.get('target_services', ['all'])
+    if isinstance(target_services_raw, str):
+        target_services_list = [target_services_raw] if target_services_raw else ['all']
+    elif isinstance(target_services_raw, list):
+        target_services_list = target_services_raw if target_services_raw else ['all']
+    else:
+        target_services_list = ['all']
     start_time_str = body.get('start_time', '').strip()
     end_time_str = body.get('end_time', '').strip()
     purpose = body.get('purpose', '').strip()
     work_request_id = body.get('work_request_id', '').strip() or None
+    include_parameter_store = body.get('include_parameter_store', False)
+    include_secrets_manager = body.get('include_secrets_manager', False)
 
     # If iam_user_name is not provided, use user's iam_user_name
     if not iam_user_name:
@@ -1498,9 +1507,11 @@ def create_role_request(event: Dict[str, Any], body: Dict[str, Any]) -> Dict[str
         end_time=end_time,
         purpose=purpose,
         permission_type=permission_type,
-        target_services=[target_services] if target_services else ['all'],
+        target_services=target_services_list,
         status=RequestStatus.PENDING,
         work_request_id=work_request_id,
+        include_parameter_store=include_parameter_store,
+        include_secrets_manager=include_secrets_manager,
     )
 
     # Save to DynamoDB
@@ -1514,7 +1525,11 @@ def create_role_request(event: Dict[str, Any], body: Dict[str, Any]) -> Dict[str
     try:
         if APPROVAL_CHANNEL_ID:
             mattermost = MattermostClient()
-            callback_url = f"{API_URL}/interactive" if API_URL else ""
+            # Get callback URL from API Gateway event context (same as request_handler.py)
+            request_context = event.get('requestContext', {})
+            domain_name = request_context.get('domainName', '')
+            stage = request_context.get('stage', 'prod')
+            callback_url = f"https://{domain_name}/{stage}/interactive" if domain_name else (f"{API_URL}/interactive" if API_URL else "")
 
             attachment = create_approval_message(
                 request_id=request_id,
@@ -1527,7 +1542,9 @@ def create_role_request(event: Dict[str, Any], body: Dict[str, Any]) -> Dict[str
                 purpose=purpose,
                 callback_url=callback_url,
                 permission_type=permission_type,
-                target_services=target_services,
+                target_services=target_services_list,
+                include_parameter_store=include_parameter_store,
+                include_secrets_manager=include_secrets_manager,
             )
 
             post_response = mattermost.send_interactive_message(
@@ -1591,11 +1608,19 @@ def create_admin_role_grant(event: Dict[str, Any], body: Dict[str, Any]) -> Dict
     env = body.get('env', '')
     service = body.get('service', '')
     permission_type = body.get('permission_type', 'read_update')
-    target_services = body.get('target_services', 'all')
+    target_services_raw = body.get('target_services', ['all'])
+    if isinstance(target_services_raw, str):
+        target_services_list = [target_services_raw] if target_services_raw else ['all']
+    elif isinstance(target_services_raw, list):
+        target_services_list = target_services_raw if target_services_raw else ['all']
+    else:
+        target_services_list = ['all']
     start_time_str = body.get('start_time', '').strip()
     end_time_str = body.get('end_time', '').strip()
     purpose = body.get('purpose', '').strip()
     work_request_id = body.get('work_request_id', '').strip() or None
+    include_parameter_store = body.get('include_parameter_store', False)
+    include_secrets_manager = body.get('include_secrets_manager', False)
 
     # Validate required fields
     if not target_user_id:
@@ -1686,11 +1711,13 @@ def create_admin_role_grant(event: Dict[str, Any], body: Dict[str, Any]) -> Dict
         end_time=end_time,
         purpose=purpose,
         permission_type=permission_type,
-        target_services=[target_services] if target_services else ['all'],
+        target_services=target_services_list,
         status=RequestStatus.APPROVED,
         approver_id=user.get('user_id'),
         is_master_request=True,
         work_request_id=work_request_id,
+        include_parameter_store=include_parameter_store,
+        include_secrets_manager=include_secrets_manager,
     )
 
     # Create IAM Role immediately
@@ -1738,8 +1765,10 @@ def create_admin_role_grant(event: Dict[str, Any], body: Dict[str, Any]) -> Dict
                     "elasticbeanstalk": "ElasticBeanstalk",
                     "dynamodb": "DynamoDB",
                     "elasticloadbalancing": "ELB",
+                    "route53": "Route53",
+                    "amplify": "Amplify",
                 }
-                target_display = target_names.get(target_services, target_services)
+                target_display = ', '.join(target_names.get(s, s) for s in target_services_list)
 
                 mattermost.send_dm_by_username(username=target_mattermost_id,
                     message=f"✅ AWS Role이 즉시 생성되었습니다! (관리자 즉시 부여)\n\n"
@@ -1780,6 +1809,15 @@ def create_admin_role_grant(event: Dict[str, Any], body: Dict[str, Any]) -> Dict
                            f"**Env:** {env} | **Service:** {service}\n"
                            f"**권한 유형:** {perm_display} | **대상 서비스:** {target_display}",
                 )
+
+                # Send extra permissions info
+                extras = []
+                if include_parameter_store: extras.append("Parameter Store")
+                if include_secrets_manager: extras.append("Secrets Manager")
+                if extras:
+                    mattermost.send_dm_by_username(username=target_mattermost_id,
+                        message=f"**추가 권한:** {' + '.join(extras)} (읽기전용)",
+                    )
             except Exception as e:
                 print(f"[create_admin_role_grant] Failed to send DM: {e}")
 

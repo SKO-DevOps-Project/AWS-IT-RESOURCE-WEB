@@ -38,11 +38,13 @@ const RoleRequestForm: React.FC = () => {
     env: '',
     service: '',
     permission_type: 'read_update',
-    target_services: 'all',
+    target_services: [],
     start_time: '',
     end_time: getDefaultEndTime(),
     purpose: '',
     work_request_id: '',
+    include_parameter_store: false,
+    include_secrets_manager: false,
   });
 
   useEffect(() => {
@@ -101,6 +103,10 @@ const RoleRequestForm: React.FC = () => {
       setError('Service를 선택해주세요');
       return;
     }
+    if (formData.target_services.length === 0) {
+      setError('대상 AWS 서비스를 하나 이상 선택해주세요');
+      return;
+    }
     if (!formData.end_time) {
       setError('종료 시간을 입력해주세요');
       return;
@@ -117,6 +123,9 @@ const RoleRequestForm: React.FC = () => {
       const submitData: RoleRequestFormData = {
         ...formData,
         purpose: formData.purpose.trim(),
+        target_services: formData.target_services.length === (options?.target_services.length || 0)
+          ? ['all']
+          : formData.target_services,
       };
 
       // Remove empty optional fields
@@ -256,27 +265,80 @@ const RoleRequestForm: React.FC = () => {
                   className="form-select"
                   required
                 >
-                  {options?.permission_types.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
+                  {options?.permission_types
+                    .filter(opt => !opt.admin_only && !['read_update_create', 'full'].includes(opt.value))
+                    .map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
                 </select>
+                <p className="field-help-text" style={{ marginTop: '4px', fontSize: '12px', color: '#6b7280' }}>
+                  CREATE / DELETE 권한이 필요한 경우 관리자에게 문의하세요.
+                </p>
               </div>
+            </div>
 
-              <div className="form-group">
-                <label htmlFor="target_services">대상 AWS 서비스 *</label>
-                <select
-                  id="target_services"
-                  name="target_services"
-                  value={formData.target_services}
-                  onChange={handleChange}
-                  className="form-select"
-                  required
-                >
-                  {options?.target_services.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+            <div className="checkbox-group">
+              <span className="checkbox-group-label">대상 AWS 서비스 *</span>
+              <div className="checkbox-options">
+                <label className={`checkbox-option${
+                  formData.target_services.length === (options?.target_services.length || 0) ? ' checked' : ''
+                }`}>
+                  <input type="checkbox"
+                    checked={formData.target_services.length === (options?.target_services.length || 0)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setFormData(prev => ({
+                          ...prev,
+                          target_services: options?.target_services.map(o => o.value) || []
+                        }));
+                      } else {
+                        setFormData(prev => ({ ...prev, target_services: [] }));
+                      }
+                    }}
+                  />
+                  전체
+                </label>
+                {options?.target_services.map(opt => (
+                  <label key={opt.value} className={`checkbox-option${
+                    formData.target_services.includes(opt.value) ? ' checked' : ''
+                  }`}>
+                    <input type="checkbox"
+                      checked={formData.target_services.includes(opt.value)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setFormData(prev => ({
+                            ...prev,
+                            target_services: [...prev.target_services, opt.value]
+                          }));
+                        } else {
+                          setFormData(prev => ({
+                            ...prev,
+                            target_services: prev.target_services.filter(v => v !== opt.value)
+                          }));
+                        }
+                      }}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
               </div>
+            </div>
+
+            <div className="checkbox-group">
+              <span className="checkbox-group-label">추가 권한 (읽기전용)</span>
+              <div className="checkbox-options">
+                <label className={`checkbox-option${formData.include_parameter_store ? ' checked' : ''}`}>
+                  <input type="checkbox" checked={formData.include_parameter_store}
+                    onChange={(e) => setFormData(prev => ({ ...prev, include_parameter_store: e.target.checked }))} />
+                  Parameter Store
+                </label>
+                <label className={`checkbox-option${formData.include_secrets_manager ? ' checked' : ''}`}>
+                  <input type="checkbox" checked={formData.include_secrets_manager}
+                    onChange={(e) => setFormData(prev => ({ ...prev, include_secrets_manager: e.target.checked }))} />
+                  Secrets Manager
+                </label>
+              </div>
+              <p className="checkbox-hint">환경변수 조회가 필요한 경우 선택하세요. 읽기 전용 권한만 부여됩니다.</p>
             </div>
           </div>
 

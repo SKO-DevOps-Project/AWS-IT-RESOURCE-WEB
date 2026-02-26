@@ -127,8 +127,11 @@ def create_request_dialog(
                 {"text": "조회 + 수정 (Read + Update)", "value": "read_update"},
                 {"text": "조회 + 수정 + 생성 (Read + Update + Create)", "value": "read_update_create"},
                 {"text": "전체 (Full - 삭제 포함)", "value": "full"},
+            ] if is_master else [
+                {"text": "조회만 (Read Only)", "value": "read_only"},
+                {"text": "조회 + 수정 (Read + Update)", "value": "read_update"},
             ],
-            "help_text": "필요한 권한 수준을 선택하세요",
+            "help_text": "필요한 권한 수준을 선택하세요" if is_master else "CREATE / DELETE 권한이 필요한 경우 관리자에게 문의하세요",
         },
         {
             "display_name": "대상 AWS 서비스",
@@ -136,15 +139,42 @@ def create_request_dialog(
             "type": "select",
             "default": "all",
             "options": [
-                {"text": "전체 (EC2+SSM, RDS, Lambda, S3, EB, DynamoDB)", "value": "all"},
+                {"text": "전체 (EC2+SSM, RDS, Lambda, S3, EB, DynamoDB, ELB, Route53, Amplify)", "value": "all"},
                 {"text": "EC2만 (SSM 접속 포함)", "value": "ec2"},
                 {"text": "RDS만", "value": "rds"},
                 {"text": "Lambda만", "value": "lambda"},
                 {"text": "S3만", "value": "s3"},
                 {"text": "ElasticBeanstalk만", "value": "elasticbeanstalk"},
                 {"text": "DynamoDB만", "value": "dynamodb"},
+                {"text": "ELB (로드밸런서)만", "value": "elasticloadbalancing"},
+                {"text": "Route53 (DNS)만", "value": "route53"},
+                {"text": "Amplify (웹 호스팅)만", "value": "amplify"},
             ],
             "help_text": "권한이 필요한 AWS 서비스를 선택하세요",
+        },
+        {
+            "display_name": "Parameter Store 읽기 권한",
+            "name": "include_parameter_store",
+            "type": "select",
+            "default": "false",
+            "options": [
+                {"text": "사용 안함", "value": "false"},
+                {"text": "사용 (읽기전용)", "value": "true"},
+            ],
+            "help_text": "SSM Parameter Store 읽기 권한을 추가합니다",
+            "optional": True,
+        },
+        {
+            "display_name": "Secrets Manager 읽기 권한",
+            "name": "include_secrets_manager",
+            "type": "select",
+            "default": "false",
+            "options": [
+                {"text": "사용 안함", "value": "false"},
+                {"text": "사용 (읽기전용)", "value": "true"},
+            ],
+            "help_text": "Secrets Manager 읽기 권한을 추가합니다",
+            "optional": True,
         },
         {
             "display_name": "시작 시간",
@@ -395,6 +425,8 @@ class RequestHandler:
         service = submission.get("service", "")
         permission_type = submission.get("permission_type", "read_update")
         target_services_str = submission.get("target_services", "all")
+        include_parameter_store = submission.get("include_parameter_store", "false") == "true"
+        include_secrets_manager = submission.get("include_secrets_manager", "false") == "true"
         start_time_str = submission.get("start_time", "").strip()
         end_time_str = submission.get("end_time", "").strip()
         purpose = submission.get("purpose", "").strip()
@@ -470,6 +502,9 @@ class RequestHandler:
             "s3": "S3",
             "elasticbeanstalk": "ElasticBeanstalk",
             "dynamodb": "DynamoDB",
+            "elasticloadbalancing": "ELB",
+            "route53": "Route53",
+            "amplify": "Amplify",
         }
         
         # Create request - use target_user_id for master requests
@@ -489,6 +524,8 @@ class RequestHandler:
             approver_id=user_id if is_master else None,
             is_master_request=is_master,
             work_request_id=work_request_id,  # 업무 요청과 연결
+            include_parameter_store=include_parameter_store,
+            include_secrets_manager=include_secrets_manager,
         )
         
         # Save to repository
@@ -622,7 +659,17 @@ class RequestHandler:
                            f"**Env:** {request.env} | **Service:** {request.service}\n"
                            f"**권한 유형:** {perm_display} | **대상 서비스:** {target_display}",
                 )
-            
+
+                # Send extra permissions info
+                extras = []
+                if include_parameter_store: extras.append("Parameter Store")
+                if include_secrets_manager: extras.append("Secrets Manager")
+                if extras:
+                    self.mattermost_client.send_dm(
+                        user_id=request.requester_mattermost_id,
+                        message=f"**추가 권한:** {' + '.join(extras)} (읽기전용)",
+                    )
+
             return {}
             
         except Exception as e:
