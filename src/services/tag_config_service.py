@@ -12,8 +12,8 @@ from typing import List, Dict, Any, Optional
 # Korea Standard Time (UTC+9)
 KST = timezone(timedelta(hours=9))
 
-# Cache TTL: 5 minutes
-_CACHE_TTL = 300
+# Cache TTL: 10 seconds (Lambda 인스턴스 간 캐시 불일치 최소화)
+_CACHE_TTL = 10
 _cache: Dict[str, Any] = {}
 _cache_timestamps: Dict[str, float] = {}
 
