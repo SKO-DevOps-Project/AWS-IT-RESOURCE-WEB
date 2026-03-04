@@ -1617,7 +1617,7 @@ def create_role_request(event: Dict[str, Any], body: Dict[str, Any]) -> Dict[str
             )
 
             post_response = mattermost.send_interactive_message(
-                channel_id=APPROVAL_CHANNEL_ID,
+                channel_id=REQUEST_CHANNEL_ID,
                 text="📋 새로운 권한 요청이 도착했습니다. (웹)",
                 attachments=[attachment],
             )
