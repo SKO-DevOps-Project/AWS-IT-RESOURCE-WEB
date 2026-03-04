@@ -20,7 +20,14 @@ from models import (
     RequestStatus,
 )
 from services.tag_config_service import get_valid_envs, get_valid_services, get_service_display_names
-from services.mattermost_client import MattermostClient, Attachment, Action, create_work_request_notification, create_approval_message
+from services.mattermost_client import MattermostClient, create_work_request_notification
+from services.notification_service import (
+    notify_request_created,
+    notify_approved,
+    notify_rejected,
+    notify_revoked,
+    notify_role_created,
+)
 from services.request_validator import RequestValidator
 
 
@@ -450,6 +457,11 @@ def get_tickets(query_params: Dict[str, str]) -> Dict[str, Any]:
     if user_name:
         filter_expressions.append('contains(requester_name, :user_name)')
         expression_values[':user_name'] = user_name
+
+    iam_user_name = query_params.get('iam_user_name')
+    if iam_user_name:
+        filter_expressions.append('iam_user_name = :iam_user_name')
+        expression_values[':iam_user_name'] = iam_user_name
 
     if filter_expressions:
         scan_kwargs['FilterExpression'] = ' AND '.join(filter_expressions)
@@ -1590,81 +1602,38 @@ def create_role_request(event: Dict[str, Any], body: Dict[str, Any]) -> Dict[str
         print(f"[create_role_request] Error saving: {e}")
         return response(500, {'error': '요청 저장 중 오류가 발생했습니다'})
 
-    # Send to Mattermost approval channel
+    # Send notifications via notification_service
     try:
-        if APPROVAL_CHANNEL_ID:
-            mattermost = MattermostClient()
-            # Get callback URL from API Gateway event context (same as request_handler.py)
-            request_context = event.get('requestContext', {})
-            domain_name = request_context.get('domainName', '')
-            stage = request_context.get('stage', 'prod')
-            callback_url = f"https://{domain_name}/{stage}/interactive" if domain_name else (f"{API_URL}/interactive" if API_URL else "")
+        mattermost = MattermostClient()
+        request_context = event.get('requestContext', {})
+        domain_name = request_context.get('domainName', '')
+        stage = request_context.get('stage', 'prod')
+        callback_url = f"https://{domain_name}/{stage}/interactive" if domain_name else (f"{API_URL}/interactive" if API_URL else "")
 
-            attachment = create_approval_message(
-                request_id=request_id,
-                requester_name=user.get('name', ''),
-                iam_user_name=iam_user_name,
-                env=env,
-                service=service,
-                start_time=start_time.strftime('%Y-%m-%d %H:%M'),
-                end_time=end_time.strftime('%Y-%m-%d %H:%M'),
-                purpose=purpose,
-                callback_url=callback_url,
-                permission_type=permission_type,
-                target_services=target_services_list,
-                include_parameter_store=include_parameter_store,
-                include_secrets_manager=include_secrets_manager,
+        post_id = notify_request_created(
+            mattermost=mattermost,
+            request_id=request_id,
+            requester_name=user.get('name', ''),
+            requester_mattermost_id=requester_mattermost_id,
+            iam_user_name=iam_user_name,
+            env=env,
+            service=service,
+            start_time=start_time,
+            end_time=end_time,
+            purpose=purpose,
+            permission_type=permission_type,
+            target_services=target_services_list,
+            callback_url=callback_url,
+            source="웹",
+            include_parameter_store=include_parameter_store,
+            include_secrets_manager=include_secrets_manager,
+        )
+        if post_id:
+            role_requests_table.update_item(
+                Key={'request_id': request_id},
+                UpdateExpression='SET post_id = :post_id',
+                ExpressionAttributeValues={':post_id': post_id}
             )
-
-            # 1) 승인 카드 → global_aws_master (관리자 채널)
-            post_response = mattermost.send_interactive_message(
-                channel_id=APPROVAL_CHANNEL_ID,
-                text="📋 새로운 권한 요청이 도착했습니다. (웹)",
-                attachments=[attachment],
-            )
-
-            # Update post_id
-            if 'id' in post_response:
-                role_requests_table.update_item(
-                    Key={'request_id': request_id},
-                    UpdateExpression='SET post_id = :post_id',
-                    ExpressionAttributeValues={':post_id': post_response['id']}
-                )
-
-            print(f"[create_role_request] Mattermost approval card sent for request: {request_id}")
-
-            # 2) 텍스트 알림 → global_aws_request (전체 공개 채널)
-            if REQUEST_CHANNEL_ID:
-                try:
-                    now_kst = datetime.now(KST)
-                    mattermost.send_to_channel(
-                        channel_id=REQUEST_CHANNEL_ID,
-                        message=f"📝 **{user.get('name', iam_user_name)}** 유저가 권한을 요청했습니다. (웹)\n"
-                               f"- 요청 ID: `{request_id}`\n"
-                               f"- IAM User: `{iam_user_name}`\n"
-                               f"- Env: `{env}` | Service: `{service}`\n"
-                               f"- 시간: {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
-                               f"- 요청 시각: {now_kst.strftime('%Y-%m-%d %H:%M:%S')} (KST)",
-                    )
-                    print(f"[create_role_request] Request notification sent to REQUEST_CHANNEL")
-                except Exception as e:
-                    print(f"[create_role_request] Failed to send to request channel: {e}")
-
-            # Send DM to requester if mattermost_id exists
-            if requester_mattermost_id:
-                try:
-                    mattermost.send_dm_by_username(username=requester_mattermost_id,
-                        message=f"✅ 권한 요청이 제출되었습니다.\n\n"
-                               f"**요청 ID:** {request_id}\n"
-                               f"**IAM User:** {iam_user_name}\n"
-                               f"**Env:** {env}\n"
-                               f"**Service:** {service}\n"
-                               f"**시작 시간:** {start_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
-                               f"**종료 시간:** {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n\n"
-                               f"담당자 승인 후 알림을 받으실 수 있습니다.",
-                    )
-                except Exception as e:
-                    print(f"[create_role_request] Failed to send DM: {e}")
     except Exception as e:
         print(f"[create_role_request] Failed to send Mattermost notification: {e}")
 
@@ -1827,84 +1796,26 @@ def create_admin_role_grant(event: Dict[str, Any], body: Dict[str, Any]) -> Dict
         # Save to DynamoDB
         role_requests_table.put_item(Item=role_request.to_dict())
 
-        # Send DM to target user if mattermost_id exists
+        # Send DM to target user via notification_service
         if target_mattermost_id:
             try:
                 mattermost = MattermostClient()
-                role_name = role_request.role_arn.split("/")[-1]
-
-                # Permission type display names
-                perm_names = {
-                    "read_only": "조회만",
-                    "read_update": "조회+수정",
-                    "read_update_create": "조회+수정+생성",
-                    "full": "전체(삭제포함)",
-                }
-                perm_display = perm_names.get(permission_type, permission_type)
-
-                # Target service display names
-                target_names = {
-                    "all": "전체",
-                    "ec2": "EC2",
-                    "rds": "RDS",
-                    "lambda": "Lambda",
-                    "s3": "S3",
-                    "elasticbeanstalk": "ElasticBeanstalk",
-                    "dynamodb": "DynamoDB",
-                    "elasticloadbalancing": "ELB",
-                    "route53": "Route53",
-                    "amplify": "Amplify",
-                }
-                target_display = ', '.join(target_names.get(s, s) for s in target_services_list)
-
-                mattermost.send_dm_by_username(username=target_mattermost_id,
-                    message=f"✅ AWS Role이 즉시 생성되었습니다! (관리자 즉시 부여)\n\n"
-                           f"**요청 ID:** {request_id}\n"
-                           f"**Role ARN:** {role_request.role_arn}\n\n"
-                           f"---\n"
-                           f"## 🖥️ Console에서 사용하기 (Switch Role)\n"
-                           f"1. AWS Console 우측 상단 → Switch Role\n"
-                           f"2. Account: `680877507363`\n"
-                           f"3. Role: `{role_name}`\n\n"
-                           f"---\n"
-                           f"## 💻 CLI에서 사용하기\n\n"
-                           f"**방법 1: 환경변수 설정 - Mac/Linux**\n"
-                           f"```bash\n"
-                           f"# 1. assume-role 실행\n"
-                           f"CREDS=$(aws sts assume-role --role-arn {role_request.role_arn} --role-session-name {iam_user_name}-session --query 'Credentials' --output json)\n\n"
-                           f"# 2. 환경변수 설정\n"
-                           f"export AWS_ACCESS_KEY_ID=$(echo $CREDS | jq -r '.AccessKeyId')\n"
-                           f"export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | jq -r '.SecretAccessKey')\n"
-                           f"export AWS_SESSION_TOKEN=$(echo $CREDS | jq -r '.SessionToken')\n\n"
-                           f"# 3. 확인\n"
-                           f"aws sts get-caller-identity\n"
-                           f"```\n\n"
-                           f"**방법 2: 환경변수 설정 - Windows (PowerShell)**\n"
-                           f"```powershell\n"
-                           f"# 1. assume-role 실행\n"
-                           f'$creds = (aws sts assume-role --role-arn {role_request.role_arn} --role-session-name {iam_user_name}-session --query "Credentials" --output json) | ConvertFrom-Json\n\n'
-                           f"# 2. 환경변수 설정\n"
-                           f"$env:AWS_ACCESS_KEY_ID = $creds.AccessKeyId\n"
-                           f"$env:AWS_SECRET_ACCESS_KEY = $creds.SecretAccessKey\n"
-                           f"$env:AWS_SESSION_TOKEN = $creds.SessionToken\n\n"
-                           f"# 3. 확인\n"
-                           f"aws sts get-caller-identity\n"
-                           f"```\n\n"
-                           f"---\n"
-                           f"**시작 시간:** {start_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
-                           f"**종료 시간:** {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
-                           f"**Env:** {env} | **Service:** {service}\n"
-                           f"**권한 유형:** {perm_display} | **대상 서비스:** {target_display}",
+                notify_role_created(
+                    mattermost=mattermost,
+                    request_id=request_id,
+                    requester_mattermost_id=target_mattermost_id,
+                    iam_user_name=iam_user_name,
+                    env=env,
+                    service=service,
+                    start_time_str=start_time.strftime('%Y-%m-%d %H:%M'),
+                    end_time_str=end_time.strftime('%Y-%m-%d %H:%M'),
+                    role_arn=role_request.role_arn,
+                    permission_type=permission_type,
+                    target_services=target_services_list,
+                    source="관리자 즉시 부여",
+                    include_parameter_store=include_parameter_store,
+                    include_secrets_manager=include_secrets_manager,
                 )
-
-                # Send extra permissions info
-                extras = []
-                if include_parameter_store: extras.append("Parameter Store")
-                if include_secrets_manager: extras.append("Secrets Manager")
-                if extras:
-                    mattermost.send_dm_by_username(username=target_mattermost_id,
-                        message=f"**추가 권한:** {' + '.join(extras)} (읽기전용)",
-                    )
             except Exception as e:
                 print(f"[create_admin_role_grant] Failed to send DM: {e}")
 
@@ -2074,128 +1985,34 @@ def approve_ticket(event: Dict[str, Any], request_id: str) -> Dict[str, Any]:
                 except Exception as e:
                     print(f"[approve_ticket] Error updating work request: {e}")
 
-            # Send DM to requester
+            # Send all notifications via notification_service
             requester_mattermost_id = get_mattermost_id_for_ticket(ticket)
-            if requester_mattermost_id:
-                try:
-                    mattermost = MattermostClient()
-                    role_name = role_info['role_arn'].split("/")[-1]
-
-                    perm_names = {
-                        "read_only": "조회만",
-                        "read_update": "조회+수정",
-                        "read_update_create": "조회+수정+생성",
-                        "full": "전체(삭제포함)",
-                    }
-                    perm_display = perm_names.get(ticket.get('permission_type', 'read_update'), ticket.get('permission_type', 'read_update'))
-
-                    # Target service display names
-                    target_names = {
-                        "all": "전체",
-                        "ec2": "EC2",
-                        "rds": "RDS",
-                        "lambda": "Lambda",
-                        "s3": "S3",
-                        "elasticbeanstalk": "ElasticBeanstalk",
-                        "dynamodb": "DynamoDB",
-                    }
-                    target_services_val = ticket.get('target_services', ['all'])
-                    target_services_str = target_services_val[0] if isinstance(target_services_val, list) and target_services_val else "all"
-                    target_display = target_names.get(target_services_str, target_services_str)
-
-                    iam_user_name = ticket.get('iam_user_name', '')
-
-                    mattermost.send_dm_by_username(username=requester_mattermost_id,
-                        message=f"✅ AWS Role이 생성되었습니다! (웹 승인)\n\n"
-                               f"**요청 ID:** {request_id}\n"
-                               f"**Role ARN:** {role_info['role_arn']}\n\n"
-                               f"---\n"
-                               f"## 🖥️ Console에서 사용하기 (Switch Role)\n"
-                               f"1. AWS Console 우측 상단 → Switch Role\n"
-                               f"2. Account: `680877507363`\n"
-                               f"3. Role: `{role_name}`\n\n"
-                               f"---\n"
-                               f"## 💻 CLI에서 사용하기\n\n"
-                               f"**방법 1: 환경변수 설정 - Mac/Linux**\n"
-                               f"```bash\n"
-                               f"# 1. assume-role 실행\n"
-                               f"CREDS=$(aws sts assume-role --role-arn {role_info['role_arn']} --role-session-name {iam_user_name}-session --query 'Credentials' --output json)\n\n"
-                               f"# 2. 환경변수 설정\n"
-                               f"export AWS_ACCESS_KEY_ID=$(echo $CREDS | jq -r '.AccessKeyId')\n"
-                               f"export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | jq -r '.SecretAccessKey')\n"
-                               f"export AWS_SESSION_TOKEN=$(echo $CREDS | jq -r '.SessionToken')\n\n"
-                               f"# 3. 확인\n"
-                               f"aws sts get-caller-identity\n"
-                               f"```\n\n"
-                               f"**방법 2: 환경변수 설정 - Windows (PowerShell)**\n"
-                               f"```powershell\n"
-                               f"# 1. assume-role 실행\n"
-                               f'$creds = (aws sts assume-role --role-arn {role_info["role_arn"]} --role-session-name {iam_user_name}-session --query "Credentials" --output json) | ConvertFrom-Json\n\n'
-                               f"# 2. 환경변수 설정\n"
-                               f"$env:AWS_ACCESS_KEY_ID = $creds.AccessKeyId\n"
-                               f"$env:AWS_SECRET_ACCESS_KEY = $creds.SecretAccessKey\n"
-                               f"$env:AWS_SESSION_TOKEN = $creds.SessionToken\n\n"
-                               f"# 3. 확인\n"
-                               f"aws sts get-caller-identity\n"
-                               f"```\n\n"
-                               f"**방법 3: AWS Profile 설정 (모든 OS)**\n"
-                               f"```bash\n"
-                               f"# ~/.aws/credentials 에 추가\n"
-                               f"[temp-role]\n"
-                               f"aws_access_key_id = <AccessKeyId 값>\n"
-                               f"aws_secret_access_key = <SecretAccessKey 값>\n"
-                               f"aws_session_token = <SessionToken 값>\n\n"
-                               f"# 사용 시\n"
-                               f"aws s3 ls --profile temp-role\n"
-                               f"```\n\n"
-                               f"---\n"
-                               f"**시작 시간:** {start_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
-                               f"**종료 시간:** {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
-                               f"**Env:** {ticket.get('env')} | **Service:** {ticket.get('service')}\n"
-                               f"**권한 유형:** {perm_display} | **대상 서비스:** {target_display}",
-                    )
-                except Exception as e:
-                    print(f"[approve_ticket] Failed to send DM: {e}")
-
-            # Send notification to approval channel with revoke button
-            if APPROVAL_CHANNEL_ID:
-                try:
-                    mattermost = MattermostClient()
-                    callback_url = os.environ.get("CALLBACK_URL", "")
-
-                    approval_attachment = Attachment(
-                        fallback=f"승인됨: {ticket.get('requester_name', '')}",
-                        color="#00FF00",
-                        title="✅ 승인됨 (웹)",
-                        text=f"**요청자:** {ticket.get('requester_name', '')}\n"
-                             f"**IAM User:** {ticket.get('iam_user_name', '')}\n"
-                             f"**Env:** {ticket.get('env')} | **Service:** {ticket.get('service')}\n"
-                             f"**시간:** {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n\n"
-                             f"**승인자:** {user.get('name', '')}\n"
-                             f"**요청 ID:** {request_id}",
-                        actions=[
-                            Action(
-                                id="revoke",
-                                name="🔄 권한 회수",
-                                integration={
-                                    "url": callback_url,
-                                    "context": {
-                                        "action": "revoke",
-                                        "request_id": request_id,
-                                    },
-                                },
-                                style="danger",
-                            ),
-                        ],
-                    )
-
-                    mattermost.send_interactive_message(
-                        channel_id=APPROVAL_CHANNEL_ID,
-                        text="📋 권한 요청 - 승인됨 (웹)",
-                        attachments=[approval_attachment],
-                    )
-                except Exception as e:
-                    print(f"[approve_ticket] Failed to send channel notification: {e}")
+            callback_url = os.environ.get("CALLBACK_URL", "")
+            try:
+                mattermost = MattermostClient()
+                notify_approved(
+                    mattermost=mattermost,
+                    request_id=request_id,
+                    requester_name=ticket.get('requester_name', ''),
+                    requester_mattermost_id=requester_mattermost_id,
+                    iam_user_name=ticket.get('iam_user_name', ''),
+                    env=ticket.get('env', ''),
+                    service=ticket.get('service', ''),
+                    start_time_str=start_time.strftime('%Y-%m-%d %H:%M'),
+                    end_time_str=end_time.strftime('%Y-%m-%d %H:%M'),
+                    approver_name=user.get('name', ''),
+                    permission_type=ticket.get('permission_type', 'read_update'),
+                    target_services=ticket.get('target_services', ['all']),
+                    role_arn=role_info.get('role_arn'),
+                    callback_url=callback_url,
+                    post_id=ticket.get('post_id'),
+                    is_scheduled=False,
+                    source="웹",
+                    include_parameter_store=ticket.get('include_parameter_store', False),
+                    include_secrets_manager=ticket.get('include_secrets_manager', False),
+                )
+            except Exception as e:
+                print(f"[approve_ticket] Failed to send notifications: {e}")
 
             return response(200, {
                 'request_id': request_id,
@@ -2231,61 +2048,31 @@ def approve_ticket(event: Dict[str, Any], request_id: str) -> Dict[str, Any]:
             scheduler.create_start_schedule(role_request)
             scheduler.create_end_schedule(role_request)
 
-            # Send DM to requester
+            # Send all notifications via notification_service
             requester_mattermost_id = get_mattermost_id_for_ticket(ticket)
-            if requester_mattermost_id:
-                try:
-                    mattermost = MattermostClient()
-                    mattermost.send_dm_by_username(username=requester_mattermost_id,
-                        message=f"✅ 권한 요청이 승인되었습니다. (웹 승인)\n\n"
-                               f"**요청 ID:** {request_id}\n"
-                               f"**시작 시간:** {start_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
-                               f"**종료 시간:** {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n\n"
-                               f"시작 시간에 Role이 자동으로 생성됩니다.",
-                    )
-                except Exception as e:
-                    print(f"[approve_ticket] Failed to send DM: {e}")
-
-            # Send notification to approval channel with revoke button
-            if APPROVAL_CHANNEL_ID:
-                try:
-                    mattermost = MattermostClient()
-                    callback_url = os.environ.get("CALLBACK_URL", "")
-
-                    scheduled_attachment = Attachment(
-                        fallback=f"승인됨 (예약): {ticket.get('requester_name', '')}",
-                        color="#00FF00",
-                        title="✅ 승인됨 (웹/예약)",
-                        text=f"**요청자:** {ticket.get('requester_name', '')}\n"
-                             f"**IAM User:** {ticket.get('iam_user_name', '')}\n"
-                             f"**Env:** {ticket.get('env')} | **Service:** {ticket.get('service')}\n"
-                             f"**시간:** {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n\n"
-                             f"**승인자:** {user.get('name', '')}\n"
-                             f"**요청 ID:** {request_id}\n"
-                             f"시작 시간에 Role이 자동 생성됩니다.",
-                        actions=[
-                            Action(
-                                id="revoke",
-                                name="🔄 권한 회수",
-                                integration={
-                                    "url": callback_url,
-                                    "context": {
-                                        "action": "revoke",
-                                        "request_id": request_id,
-                                    },
-                                },
-                                style="danger",
-                            ),
-                        ],
-                    )
-
-                    mattermost.send_interactive_message(
-                        channel_id=APPROVAL_CHANNEL_ID,
-                        text="📋 권한 요청 - 승인됨 (웹/예약)",
-                        attachments=[scheduled_attachment],
-                    )
-                except Exception as e:
-                    print(f"[approve_ticket] Failed to send channel notification: {e}")
+            callback_url = os.environ.get("CALLBACK_URL", "")
+            try:
+                mattermost = MattermostClient()
+                notify_approved(
+                    mattermost=mattermost,
+                    request_id=request_id,
+                    requester_name=ticket.get('requester_name', ''),
+                    requester_mattermost_id=requester_mattermost_id,
+                    iam_user_name=ticket.get('iam_user_name', ''),
+                    env=ticket.get('env', ''),
+                    service=ticket.get('service', ''),
+                    start_time_str=start_time.strftime('%Y-%m-%d %H:%M'),
+                    end_time_str=end_time.strftime('%Y-%m-%d %H:%M'),
+                    approver_name=user.get('name', ''),
+                    permission_type=ticket.get('permission_type', 'read_update'),
+                    target_services=ticket.get('target_services', ['all']),
+                    callback_url=callback_url,
+                    post_id=ticket.get('post_id'),
+                    is_scheduled=True,
+                    source="웹",
+                )
+            except Exception as e:
+                print(f"[approve_ticket] Failed to send notifications: {e}")
 
             return response(200, {
                 'request_id': request_id,
@@ -2347,33 +2134,25 @@ def reject_ticket(event: Dict[str, Any], request_id: str, body: Dict[str, Any]) 
         print(f"[reject_ticket] Error updating ticket: {e}")
         return response(500, {'error': '상태 변경 중 오류가 발생했습니다'})
 
-    # Send DM to requester
+    # Send notifications via notification_service
     requester_mattermost_id = get_mattermost_id_for_ticket(ticket)
-    if requester_mattermost_id:
-        try:
-            mattermost = MattermostClient()
-            mattermost.send_dm_by_username(username=requester_mattermost_id,
-                message=f"❌ 권한 요청이 반려되었습니다. (웹)\n\n"
-                       f"**요청 ID:** {request_id}\n"
-                       f"**반려 사유:** {rejection_reason}",
-            )
-        except Exception as e:
-            print(f"[reject_ticket] Failed to send DM: {e}")
-
-    # Send notification to approval channel
-    if APPROVAL_CHANNEL_ID:
-        try:
-            mattermost = MattermostClient()
-            mattermost.send_to_channel(
-                channel_id=APPROVAL_CHANNEL_ID,
-                message=f"❌ **[웹 반려]** 권한 요청이 반려되었습니다.\n\n"
-                       f"**요청 ID:** {request_id}\n"
-                       f"**요청자:** {ticket.get('requester_name', '')} ({ticket.get('iam_user_name', '')})\n"
-                       f"**반려자:** {user.get('name', '')}\n"
-                       f"**반려 사유:** {rejection_reason}",
-            )
-        except Exception as e:
-            print(f"[reject_ticket] Failed to send channel notification: {e}")
+    try:
+        mattermost = MattermostClient()
+        notify_rejected(
+            mattermost=mattermost,
+            request_id=request_id,
+            requester_name=ticket.get('requester_name', ''),
+            requester_mattermost_id=requester_mattermost_id,
+            iam_user_name=ticket.get('iam_user_name', ''),
+            env=ticket.get('env', ''),
+            service=ticket.get('service', ''),
+            rejecter_name=user.get('name', ''),
+            rejection_reason=rejection_reason,
+            post_id=ticket.get('post_id'),
+            source="웹",
+        )
+    except Exception as e:
+        print(f"[reject_ticket] Failed to send notifications: {e}")
 
     return response(200, {
         'request_id': request_id,
@@ -2439,35 +2218,24 @@ def revoke_ticket(event: Dict[str, Any], request_id: str) -> Dict[str, Any]:
             }
         )
 
-        # Send DM to requester
+        # Send notifications via notification_service
         requester_mattermost_id = get_mattermost_id_for_ticket(ticket)
-        if requester_mattermost_id:
-            try:
-                mattermost = MattermostClient()
-                mattermost.send_dm_by_username(username=requester_mattermost_id,
-                    message=f"🔄 AWS Role 권한이 관리자에 의해 회수되었습니다. (웹)\n\n"
-                           f"**요청 ID:** {request_id}\n"
-                           f"**Env:** {ticket.get('env')}\n"
-                           f"**Service:** {ticket.get('service')}\n\n"
-                           f"문의사항이 있으시면 관리자에게 연락해주세요.",
-                )
-            except Exception as e:
-                print(f"[revoke_ticket] Failed to send DM: {e}")
-
-        # Send notification to approval channel
-        if APPROVAL_CHANNEL_ID:
-            try:
-                mattermost = MattermostClient()
-                mattermost.send_to_channel(
-                    channel_id=APPROVAL_CHANNEL_ID,
-                    message=f"🔄 **[웹 회수]** 권한이 회수되었습니다.\n\n"
-                           f"**요청 ID:** {request_id}\n"
-                           f"**대상자:** {ticket.get('requester_name', '')} ({ticket.get('iam_user_name', '')})\n"
-                           f"**회수자:** {user.get('name', '')}\n"
-                           f"**Env:** {ticket.get('env')} | **Service:** {ticket.get('service')}",
-                )
-            except Exception as e:
-                print(f"[revoke_ticket] Failed to send channel notification: {e}")
+        try:
+            mattermost = MattermostClient()
+            notify_revoked(
+                mattermost=mattermost,
+                request_id=request_id,
+                requester_name=ticket.get('requester_name', ''),
+                requester_mattermost_id=requester_mattermost_id,
+                iam_user_name=ticket.get('iam_user_name', ''),
+                env=ticket.get('env', ''),
+                service=ticket.get('service', ''),
+                revoker_name=user.get('name', ''),
+                post_id=ticket.get('post_id'),
+                source="웹",
+            )
+        except Exception as e:
+            print(f"[revoke_ticket] Failed to send notifications: {e}")
 
         return response(200, {
             'request_id': request_id,

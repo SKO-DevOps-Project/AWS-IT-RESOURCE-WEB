@@ -71,6 +71,8 @@ export interface Ticket {
   status: string;
   role_arn?: string;
   policy_arn?: string;
+  include_parameter_store?: boolean;
+  include_secrets_manager?: boolean;
   approver_id?: string;
   work_request_id?: string;
   created_at: string;
@@ -180,6 +182,13 @@ export const getTickets = async (params?: {
   limit?: number;
 }) => {
   const response = await api.get('/tickets', { params });
+  return response.data;
+};
+
+export const getMyRequests = async (iamUserName: string) => {
+  const response = await api.get('/tickets', {
+    params: { iam_user_name: iamUserName, limit: 100 }
+  });
   return response.data;
 };
 

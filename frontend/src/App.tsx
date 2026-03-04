@@ -13,6 +13,7 @@ import RoleRequestForm from './pages/RoleRequestForm';
 import AdminRoleGrantForm from './pages/AdminRoleGrantForm';
 import AdminTicketApproval from './pages/AdminTicketApproval';
 import AdminTagManagement from './pages/AdminTagManagement';
+import MyRequests from './pages/MyRequests';
 import './App.css';
 
 function App() {
@@ -31,6 +32,7 @@ function App() {
                     <Routes>
                       <Route path="/" element={<Dashboard />} />
                       <Route path="/work-requests" element={<WorkRequestList />} />
+                      <Route path="/my-requests" element={<MyRequests />} />
                       <Route path="/role-requests" element={<TicketList />} />
                       <Route path="/role-requests/new" element={<RoleRequestForm />} />
                       <Route path="/admin/role-grant" element={<AdminRoleGrantForm />} />

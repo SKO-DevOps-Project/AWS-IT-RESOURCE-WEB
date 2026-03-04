@@ -69,6 +69,9 @@ const Sidebar: React.FC = () => {
 
         <div className="nav-group">
           <div className="nav-group-title">권한 관리</div>
+          <NavLink to="/my-requests" className={({ isActive }) => isActive ? 'nav-item nav-item-sub active' : 'nav-item nav-item-sub'}>
+            <span className="nav-text">나의 요청</span>
+          </NavLink>
           <NavLink to="/role-requests" className={({ isActive }) => isActive ? 'nav-item nav-item-sub active' : 'nav-item nav-item-sub'} end>
             <span className="nav-text">권한 요청 목록</span>
           </NavLink>
