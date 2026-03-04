@@ -474,6 +474,19 @@ SERVICE_PERMISSIONS = {
             "amplify:DeleteJob",
         ],
     },
+    "billing": {
+        "read": [
+            "ce:Get*",
+            "ce:Describe*",
+            "ce:List*",
+            "pricing:GetProducts",
+            "pricing:DescribeServices",
+            "pricing:GetAttributeValues",
+            "budgets:ViewBudget",
+            "budgets:Describe*",
+            "cur:DescribeReportDefinitions",
+        ],
+    },
 }
 
 
@@ -669,12 +682,12 @@ class RoleManager:
         
         # Determine which services to include
         if 'all' in target_services:
-            services_to_include = ['ec2', 'rds', 'lambda', 's3', 'elasticbeanstalk', 'dynamodb', 'elasticloadbalancing', 'route53', 'amplify']
+            services_to_include = ['ec2', 'rds', 'lambda', 's3', 'elasticbeanstalk', 'dynamodb', 'elasticloadbalancing', 'route53', 'amplify', 'billing']
         else:
             services_to_include = target_services
         
         # Services that don't support tag-based conditions
-        NO_TAG_CONDITION_SERVICES = ['route53', 'amplify']
+        NO_TAG_CONDITION_SERVICES = ['route53', 'amplify', 'billing']
 
         # Collect actions based on permission type
         read_actions = []

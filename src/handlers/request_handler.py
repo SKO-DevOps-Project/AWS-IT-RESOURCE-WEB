@@ -149,6 +149,7 @@ def create_request_dialog(
                 {"text": "ELB (로드밸런서)", "value": "elasticloadbalancing"},
                 {"text": "Route53 (DNS)", "value": "route53"},
                 {"text": "Amplify (웹 호스팅)", "value": "amplify"},
+                {"text": "Billing (비용 조회)", "value": "billing"},
             ],
             "help_text": "권한이 필요한 AWS 서비스를 선택하세요",
         },

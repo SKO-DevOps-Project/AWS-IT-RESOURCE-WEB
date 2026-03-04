@@ -60,6 +60,13 @@ _activities_cache = {
 }
 ACTIVITIES_CACHE_TTL = 30  # seconds
 
+# Dashboard summary cache (Lambda instance-level)
+_dashboard_cache = {
+    'data': None,
+    'timestamp': 0
+}
+DASHBOARD_CACHE_TTL = 60  # seconds
+
 
 def hash_api_key(api_key: str) -> str:
     """Hash API key for secure storage"""
@@ -278,7 +285,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return response(200, {})
 
         # Route requests
-        if path == '/api/tickets' and http_method == 'GET':
+        if path == '/api/dashboard-summary' and http_method == 'GET':
+            return get_dashboard_summary(query_params)
+
+        elif path == '/api/tickets' and http_method == 'GET':
             return get_tickets(query_params)
 
         elif path.startswith('/api/tickets/') and http_method == 'GET':
@@ -1378,6 +1388,7 @@ def get_role_request_options(event: Dict[str, Any]) -> Dict[str, Any]:
         {'value': 'elasticloadbalancing', 'label': 'ELB (로드밸런서)'},
         {'value': 'route53', 'label': 'Route53 (DNS)'},
         {'value': 'amplify', 'label': 'Amplify (웹 호스팅)'},
+        {'value': 'billing', 'label': 'Billing (비용 조회)'},
     ]
 
     # Environment options
@@ -2562,6 +2573,90 @@ def delete_tag_endpoint(event: Dict[str, Any], tag_type: str, tag_value: str) ->
     except Exception as e:
         print(f"[delete_tag_endpoint] Error: {e}")
         return response(500, {'error': f'태그 삭제 실패: {str(e)}'})
+
+
+def get_dashboard_summary(query_params: Dict[str, str]) -> Dict[str, Any]:
+    """
+    GET /api/dashboard-summary
+    Return aggregated dashboard data in a single call with caching.
+    """
+    global _dashboard_cache
+
+    now = time.time()
+    if _dashboard_cache['data'] and (now - _dashboard_cache['timestamp']) < DASHBOARD_CACHE_TTL:
+        print("[get_dashboard_summary] Returning cached data")
+        return response(200, _dashboard_cache['data'])
+
+    print("[get_dashboard_summary] Building fresh data")
+
+    # 1. RoleRequests scan
+    tickets = []
+    try:
+        result = role_requests_table.scan()
+        tickets = result.get('Items', [])
+        while 'LastEvaluatedKey' in result:
+            result = role_requests_table.scan(ExclusiveStartKey=result['LastEvaluatedKey'])
+            tickets.extend(result.get('Items', []))
+    except Exception as e:
+        print(f"[get_dashboard_summary] Error scanning tickets: {e}")
+
+    # Sort by created_at desc
+    tickets.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+
+    pending_tickets = [t for t in tickets if t.get('status') == 'pending']
+    active_tickets = [t for t in tickets if t.get('status') == 'active']
+
+    # 2. WorkRequests scan
+    work_requests = []
+    try:
+        result = work_requests_table.scan()
+        work_requests = result.get('Items', [])
+        while 'LastEvaluatedKey' in result:
+            result = work_requests_table.scan(ExclusiveStartKey=result['LastEvaluatedKey'])
+            work_requests.extend(result.get('Items', []))
+    except Exception as e:
+        print(f"[get_dashboard_summary] Error scanning work requests: {e}")
+
+    work_requests.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+
+    pending_wr = [w for w in work_requests if w.get('status') == 'pending']
+    in_progress_wr = [w for w in work_requests if w.get('status') == 'in_progress']
+
+    # 3. Activities — reuse existing cache
+    activities = []
+    if _activities_cache['items'] is not None and (now - _activities_cache['timestamp']) < ACTIVITIES_CACHE_TTL:
+        activities = _activities_cache['items']
+    else:
+        try:
+            result = activity_logs_table.scan()
+            activities = result.get('Items', [])
+            while 'LastEvaluatedKey' in result:
+                result = activity_logs_table.scan(ExclusiveStartKey=result['LastEvaluatedKey'])
+                activities.extend(result.get('Items', []))
+            activities.sort(key=lambda x: x.get('event_time', ''), reverse=True)
+            _activities_cache['items'] = activities
+            _activities_cache['timestamp'] = now
+        except Exception as e:
+            print(f"[get_dashboard_summary] Error scanning activities: {e}")
+
+    data = {
+        'stats': {
+            'activeTickets': len(active_tickets),
+            'pendingTickets': len(pending_tickets),
+            'totalWorkRequests': len(work_requests),
+            'pendingWorkRequests': len(pending_wr),
+            'inProgressWorkRequests': len(in_progress_wr),
+        },
+        'recentTickets': tickets[:5],
+        'pendingTickets': pending_tickets[:5],
+        'recentWorkRequests': work_requests[:5],
+        'recentActivities': activities[:5],
+    }
+
+    _dashboard_cache['data'] = data
+    _dashboard_cache['timestamp'] = now
+
+    return response(200, data)
 
 
 def response(status_code: int, body: Dict[str, Any]) -> Dict[str, Any]:

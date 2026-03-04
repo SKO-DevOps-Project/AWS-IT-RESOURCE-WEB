@@ -45,6 +45,7 @@ class TargetService(Enum):
     ELASTICLOADBALANCING = "elasticloadbalancing"
     ROUTE53 = "route53"
     AMPLIFY = "amplify"
+    BILLING = "billing"
     ALL = "all"
 
 

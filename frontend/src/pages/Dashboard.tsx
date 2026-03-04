@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { getTickets, getWorkRequests, getActivities, Ticket, WorkRequest, Activity } from '../api';
+import { getDashboardSummary, Ticket, WorkRequest, Activity } from '../api';
 import { getNameByMattermost, getNameByIamUser } from '../utils/userMapping';
 import { useAuth } from '../contexts/AuthContext';
 import './Dashboard.css';
@@ -75,34 +75,19 @@ const Dashboard: React.FC = () => {
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      const [ticketsData, workRequestsData, activitiesData] = await Promise.all([
-        getTickets({ limit: 100 }),
-        getWorkRequests({ limit: 100 }),
-        getActivities({ limit: 200 }),
-      ]);
-
-      const tickets = ticketsData.tickets || [];
-      const workRequests = workRequestsData.work_requests || [];
-      const activities = activitiesData.activities || [];
-
-      // Calculate stats
-      const pending = tickets.filter((t: Ticket) => t.status === 'pending');
-      const active = tickets.filter((t: Ticket) => t.status === 'active');
-      const pendingWR = workRequests.filter((w: WorkRequest) => w.status === 'pending');
-      const inProgressWR = workRequests.filter((w: WorkRequest) => w.status === 'in_progress');
+      const data = await getDashboardSummary();
 
       setStats({
-        totalWorkRequests: workRequests.length,
-        pendingWorkRequests: pendingWR.length,
-        inProgressWorkRequests: inProgressWR.length,
-        activeTickets: active.length,
+        totalWorkRequests: data.stats?.totalWorkRequests || 0,
+        pendingWorkRequests: data.stats?.pendingWorkRequests || 0,
+        inProgressWorkRequests: data.stats?.inProgressWorkRequests || 0,
+        activeTickets: data.stats?.activeTickets || 0,
       });
 
-      // Recent items
-      setRecentTickets(tickets.slice(0, 5));
-      setPendingTickets(pending.slice(0, 5));
-      setRecentWorkRequests(workRequests.slice(0, 5));
-      setRecentActivityLogs(activities.slice(0, 5));
+      setRecentTickets(data.recentTickets || []);
+      setPendingTickets(data.pendingTickets || []);
+      setRecentWorkRequests(data.recentWorkRequests || []);
+      setRecentActivityLogs(data.recentActivities || []);
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
     } finally {

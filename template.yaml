@@ -796,6 +796,12 @@ Resources:
             RestApiId: !Ref RoleRequestApi
             Path: /api/tags/{tag_type}/{tag_value}
             Method: ANY
+        DashboardSummaryProxy:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RoleRequestApi
+            Path: /api/dashboard-summary
+            Method: ANY
       Tags:
         Env: prod
         Service: infra
