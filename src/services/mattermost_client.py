@@ -363,7 +363,7 @@ def create_approval_message(
     purpose: str,
     callback_url: str,
     permission_type: str = "read_update",
-    target_services: str = "all",
+    target_services = "all",
     include_parameter_store: bool = False,
     include_secrets_manager: bool = False,
 ) -> Attachment:
@@ -409,7 +409,14 @@ def create_approval_message(
     }
     
     perm_display = permission_type_names.get(permission_type, permission_type)
-    target_display = target_service_names.get(target_services, target_services)
+
+    # target_services가 리스트로 올 수 있으므로 처리
+    if isinstance(target_services, list):
+        target_display = ", ".join(
+            target_service_names.get(s, s) for s in target_services
+        )
+    else:
+        target_display = target_service_names.get(target_services, target_services)
 
     fields = [
         {"short": True, "title": "요청자", "value": requester_name},
