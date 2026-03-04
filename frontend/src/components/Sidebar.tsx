@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { CURRENT_VERSION } from '../data/changelog';
 import './Sidebar.css';
 
 const Sidebar: React.FC = () => {
@@ -114,7 +115,12 @@ const Sidebar: React.FC = () => {
         )}
       </div>
       <div className="sidebar-footer">
-        <span>v1.0.0</span>
+        <button
+          className="whats-new-trigger"
+          onClick={() => window.dispatchEvent(new CustomEvent('open-whats-new'))}
+        >
+          v{CURRENT_VERSION} — What's New
+        </button>
       </div>
     </aside>
     </>

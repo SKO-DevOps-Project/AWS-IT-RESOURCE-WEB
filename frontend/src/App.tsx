@@ -14,6 +14,7 @@ import AdminRoleGrantForm from './pages/AdminRoleGrantForm';
 import AdminTicketApproval from './pages/AdminTicketApproval';
 import AdminTagManagement from './pages/AdminTagManagement';
 import MyRequests from './pages/MyRequests';
+import WhatsNew from './components/WhatsNew';
 import './App.css';
 
 function App() {
@@ -42,6 +43,7 @@ function App() {
                       <Route path="/activities" element={<ActivityList />} />
                     </Routes>
                   </main>
+                  <WhatsNew />
                 </div>
               </ProtectedRoute>
             }
