@@ -1487,10 +1487,17 @@ def create_role_request(event: Dict[str, Any], body: Dict[str, Any]) -> Dict[str
         if not iam_user_name:
             return response(400, {'error': 'IAM 사용자명이 필요합니다. 관리자에게 문의하세요.'})
 
-    # Validate required fields
-    if not env:
+    # Billing 단독 요청 판별
+    is_billing_only = (
+        isinstance(target_services_list, list)
+        and len(target_services_list) == 1
+        and target_services_list[0] == 'billing'
+    )
+
+    # Validate required fields (billing 단독 시 env/service 스킵)
+    if not is_billing_only and not env:
         return response(400, {'error': 'Environment를 선택해주세요'})
-    if not service:
+    if not is_billing_only and not service:
         return response(400, {'error': 'Service를 선택해주세요'})
     if not end_time_str:
         return response(400, {'error': '종료 시간을 입력해주세요'})
@@ -1527,6 +1534,7 @@ def create_role_request(event: Dict[str, Any], body: Dict[str, Any]) -> Dict[str
         start_time=start_time,
         end_time=end_time,
         purpose=purpose,
+        target_services=target_services_list,
     )
 
     if not validation_result.is_valid:

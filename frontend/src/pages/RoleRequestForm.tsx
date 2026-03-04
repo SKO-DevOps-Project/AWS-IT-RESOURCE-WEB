@@ -47,9 +47,27 @@ const RoleRequestForm: React.FC = () => {
     include_secrets_manager: false,
   });
 
+  // Billing 배타적 선택 판별
+  const isBillingOnly = formData.target_services.length === 1 && formData.target_services[0] === 'billing';
+  const hasNonBillingServices = formData.target_services.length > 0 && !formData.target_services.includes('billing');
+
   useEffect(() => {
     loadOptions();
   }, []);
+
+  // Billing 선택 시 자동 설정
+  useEffect(() => {
+    if (isBillingOnly) {
+      setFormData(prev => ({
+        ...prev,
+        permission_type: 'read_only',
+        env: '',
+        service: '',
+        include_parameter_store: false,
+        include_secrets_manager: false,
+      }));
+    }
+  }, [isBillingOnly]);
 
   useEffect(() => {
     // Pre-fill work_request_id from URL params
@@ -95,11 +113,12 @@ const RoleRequestForm: React.FC = () => {
       setError('IAM User명을 선택해주세요');
       return;
     }
-    if (!formData.env) {
+    const billingOnly = formData.target_services.length === 1 && formData.target_services[0] === 'billing';
+    if (!billingOnly && !formData.env) {
       setError('Environment를 선택해주세요');
       return;
     }
-    if (!formData.service) {
+    if (!billingOnly && !formData.service) {
       setError('Service를 선택해주세요');
       return;
     }
@@ -227,7 +246,8 @@ const RoleRequestForm: React.FC = () => {
                   value={formData.env}
                   onChange={handleChange}
                   className="form-select"
-                  required
+                  required={!isBillingOnly}
+                  disabled={isBillingOnly}
                 >
                   <option value="">선택하세요</option>
                   {options?.envs.map(opt => (
@@ -244,7 +264,8 @@ const RoleRequestForm: React.FC = () => {
                   value={formData.service}
                   onChange={handleChange}
                   className="form-select"
-                  required
+                  required={!isBillingOnly}
+                  disabled={isBillingOnly}
                 >
                   <option value="">선택하세요</option>
                   {options?.services.map(opt => (
@@ -264,6 +285,7 @@ const RoleRequestForm: React.FC = () => {
                   onChange={handleChange}
                   className="form-select"
                   required
+                  disabled={isBillingOnly}
                 >
                   {options?.permission_types
                     .filter(opt => !opt.admin_only && !['read_update_create', 'full'].includes(opt.value))
@@ -282,9 +304,10 @@ const RoleRequestForm: React.FC = () => {
               <div className="checkbox-options">
                 <label className={`checkbox-option${
                   formData.target_services.length === (options?.target_services.length || 0) ? ' checked' : ''
-                }`}>
+                }${isBillingOnly ? ' disabled' : ''}`}>
                   <input type="checkbox"
                     checked={formData.target_services.length === (options?.target_services.length || 0)}
+                    disabled={isBillingOnly}
                     onChange={(e) => {
                       if (e.target.checked) {
                         setFormData(prev => ({
@@ -298,42 +321,55 @@ const RoleRequestForm: React.FC = () => {
                   />
                   전체
                 </label>
-                {options?.target_services.map(opt => (
-                  <label key={opt.value} className={`checkbox-option${
-                    formData.target_services.includes(opt.value) ? ' checked' : ''
-                  }`}>
-                    <input type="checkbox"
-                      checked={formData.target_services.includes(opt.value)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setFormData(prev => ({
-                            ...prev,
-                            target_services: [...prev.target_services, opt.value]
-                          }));
-                        } else {
-                          setFormData(prev => ({
-                            ...prev,
-                            target_services: prev.target_services.filter(v => v !== opt.value)
-                          }));
-                        }
-                      }}
-                    />
-                    {opt.label}
-                  </label>
-                ))}
+                {options?.target_services.map(opt => {
+                  const isBilling = opt.value === 'billing';
+                  const isDisabled = isBilling ? hasNonBillingServices : isBillingOnly;
+                  return (
+                    <label key={opt.value} className={`checkbox-option${
+                      formData.target_services.includes(opt.value) ? ' checked' : ''
+                    }${isDisabled ? ' disabled' : ''}`}>
+                      <input type="checkbox"
+                        checked={formData.target_services.includes(opt.value)}
+                        disabled={isDisabled}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            if (isBilling) {
+                              // Billing 선택 시 다른 서비스 모두 해제
+                              setFormData(prev => ({ ...prev, target_services: ['billing'] }));
+                            } else {
+                              // 다른 서비스 선택 시 billing 제거
+                              setFormData(prev => ({
+                                ...prev,
+                                target_services: [...prev.target_services.filter(v => v !== 'billing'), opt.value]
+                              }));
+                            }
+                          } else {
+                            setFormData(prev => ({
+                              ...prev,
+                              target_services: prev.target_services.filter(v => v !== opt.value)
+                            }));
+                          }
+                        }}
+                      />
+                      {opt.label}
+                    </label>
+                  );
+                })}
               </div>
             </div>
 
             <div className="checkbox-group">
               <span className="checkbox-group-label">추가 권한 (읽기전용)</span>
               <div className="checkbox-options">
-                <label className={`checkbox-option${formData.include_parameter_store ? ' checked' : ''}`}>
+                <label className={`checkbox-option${formData.include_parameter_store ? ' checked' : ''}${isBillingOnly ? ' disabled' : ''}`}>
                   <input type="checkbox" checked={formData.include_parameter_store}
+                    disabled={isBillingOnly}
                     onChange={(e) => setFormData(prev => ({ ...prev, include_parameter_store: e.target.checked }))} />
                   Parameter Store
                 </label>
-                <label className={`checkbox-option${formData.include_secrets_manager ? ' checked' : ''}`}>
+                <label className={`checkbox-option${formData.include_secrets_manager ? ' checked' : ''}${isBillingOnly ? ' disabled' : ''}`}>
                   <input type="checkbox" checked={formData.include_secrets_manager}
+                    disabled={isBillingOnly}
                     onChange={(e) => setFormData(prev => ({ ...prev, include_secrets_manager: e.target.checked }))} />
                   Secrets Manager
                 </label>

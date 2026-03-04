@@ -31,10 +31,11 @@ class RequestValidator:
         purpose: Optional[str],
         is_master_request: bool = False,
         current_time: Optional[datetime] = None,
+        target_services: Optional[list] = None,
     ) -> ValidationResult:
         """
         Validate all request fields
-        
+
         Args:
             iam_user_name: AWS IAM user name
             env: Environment (prod, test, infra, staging, dev)
@@ -44,7 +45,8 @@ class RequestValidator:
             purpose: Purpose of the request
             is_master_request: If True, allows start_time in past (sets to now)
             current_time: Current time for testing (defaults to KST now)
-        
+            target_services: List of target AWS services
+
         Returns:
             ValidationResult with is_valid and errors
         """
@@ -52,22 +54,31 @@ class RequestValidator:
         # Use KST for current time (naive datetime)
         if current_time is None:
             current_time = datetime.now(KST).replace(tzinfo=None)
-        
+
+        # Billing 단독 요청 시 env/service 검증 스킵
+        is_billing_only = (
+            target_services is not None
+            and len(target_services) == 1
+            and target_services[0] == 'billing'
+        )
+
         # Required field validation
         self._validate_required_fields(
-            result, iam_user_name, env, service, start_time, end_time, purpose
+            result, iam_user_name, env, service, start_time, end_time, purpose,
+            skip_env_service=is_billing_only,
         )
-        
+
         if not result.is_valid:
             return result
-        
-        # Enum validation
-        self._validate_env(result, env)
-        self._validate_service(result, service)
-        
+
+        # Enum validation (skip for billing-only)
+        if not is_billing_only:
+            self._validate_env(result, env)
+            self._validate_service(result, service)
+
         # Time validation
         self._validate_time(result, start_time, end_time, is_master_request, current_time)
-        
+
         return result
     
     def _validate_required_fields(
@@ -79,16 +90,18 @@ class RequestValidator:
         start_time: Optional[datetime],
         end_time: Optional[datetime],
         purpose: Optional[str],
+        skip_env_service: bool = False,
     ) -> None:
         """Validate all required fields are present and non-empty"""
         fields = {
             "iam_user_name": iam_user_name,
-            "env": env,
-            "service": service,
             "start_time": start_time,
             "end_time": end_time,
             "purpose": purpose,
         }
+        if not skip_env_service:
+            fields["env"] = env
+            fields["service"] = service
         
         for field_name, value in fields.items():
             if value is None:
