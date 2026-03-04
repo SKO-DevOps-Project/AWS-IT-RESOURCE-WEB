@@ -1616,8 +1616,9 @@ def create_role_request(event: Dict[str, Any], body: Dict[str, Any]) -> Dict[str
                 include_secrets_manager=include_secrets_manager,
             )
 
+            # 1) 승인 카드 → global_aws_master (관리자 채널)
             post_response = mattermost.send_interactive_message(
-                channel_id=REQUEST_CHANNEL_ID,
+                channel_id=APPROVAL_CHANNEL_ID,
                 text="📋 새로운 권한 요청이 도착했습니다. (웹)",
                 attachments=[attachment],
             )
@@ -1630,7 +1631,24 @@ def create_role_request(event: Dict[str, Any], body: Dict[str, Any]) -> Dict[str
                     ExpressionAttributeValues={':post_id': post_response['id']}
                 )
 
-            print(f"[create_role_request] Mattermost notification sent for request: {request_id}")
+            print(f"[create_role_request] Mattermost approval card sent for request: {request_id}")
+
+            # 2) 텍스트 알림 → global_aws_request (전체 공개 채널)
+            if REQUEST_CHANNEL_ID:
+                try:
+                    now_kst = datetime.now(KST)
+                    mattermost.send_to_channel(
+                        channel_id=REQUEST_CHANNEL_ID,
+                        message=f"📝 **{user.get('name', iam_user_name)}** 유저가 권한을 요청했습니다. (웹)\n"
+                               f"- 요청 ID: `{request_id}`\n"
+                               f"- IAM User: `{iam_user_name}`\n"
+                               f"- Env: `{env}` | Service: `{service}`\n"
+                               f"- 시간: {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')} (KST)\n"
+                               f"- 요청 시각: {now_kst.strftime('%Y-%m-%d %H:%M:%S')} (KST)",
+                    )
+                    print(f"[create_role_request] Request notification sent to REQUEST_CHANNEL")
+                except Exception as e:
+                    print(f"[create_role_request] Failed to send to request channel: {e}")
 
             # Send DM to requester if mattermost_id exists
             if requester_mattermost_id:
