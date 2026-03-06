@@ -72,7 +72,7 @@ _dashboard_cache = {
     'data': None,
     'timestamp': 0
 }
-DASHBOARD_CACHE_TTL = 60  # seconds
+DASHBOARD_CACHE_TTL = 120  # 2 minutes
 
 
 def hash_api_key(api_key: str) -> str:
@@ -1238,7 +1238,9 @@ def login(body: Dict[str, Any]) -> Dict[str, Any]:
             'email': user.get('email'),
             'team': user.get('team'),
             'region': user.get('region'),
-            'is_admin': is_admin
+            'is_admin': is_admin,
+            'iam_user_name': user.get('iam_user_name', ''),
+            'mattermost_id': user.get('mattermost_id', '')
         }
     })
 
@@ -1264,7 +1266,9 @@ def get_me(event: Dict[str, Any]) -> Dict[str, Any]:
             'job_title': user.get('job_title'),
             'is_admin': user.get('is_admin', False),
             'last_login': user.get('last_login'),
-            'created_at': user.get('created_at')
+            'created_at': user.get('created_at'),
+            'iam_user_name': user.get('iam_user_name', ''),
+            'mattermost_id': user.get('mattermost_id', '')
         }
     })
 
@@ -1401,6 +1405,7 @@ def get_role_request_options(event: Dict[str, Any]) -> Dict[str, Any]:
         {'value': 'route53', 'label': 'Route53 (DNS)'},
         {'value': 'amplify', 'label': 'Amplify (웹 호스팅)'},
         {'value': 'billing', 'label': 'Billing (비용 조회)'},
+        {'value': 'ecr', 'label': 'ECR (컨테이너 레지스트리)'},
     ]
 
     # Environment options
@@ -2369,10 +2374,65 @@ def delete_tag_endpoint(event: Dict[str, Any], tag_type: str, tag_value: str) ->
         return response(500, {'error': f'태그 삭제 실패: {str(e)}'})
 
 
+def _query_by_status(table, status, limit=None):
+    """Query GSI StatusCreatedIndex — 특정 status의 항목을 최신순으로 조회"""
+    kwargs = {
+        'IndexName': 'StatusCreatedIndex',
+        'KeyConditionExpression': Key('status').eq(status),
+        'ScanIndexForward': False,  # 최신순
+    }
+    if limit:
+        kwargs['Limit'] = limit
+
+    items = []
+    result = table.query(**kwargs)
+    items.extend(result.get('Items', []))
+    if not limit:
+        while 'LastEvaluatedKey' in result:
+            kwargs['ExclusiveStartKey'] = result['LastEvaluatedKey']
+            result = table.query(**kwargs)
+            items.extend(result.get('Items', []))
+    return items
+
+
+def _query_count_by_status(table, status):
+    """Query GSI StatusCreatedIndex — status별 카운트만 조회"""
+    kwargs = {
+        'IndexName': 'StatusCreatedIndex',
+        'KeyConditionExpression': Key('status').eq(status),
+        'Select': 'COUNT',
+    }
+    total = 0
+    result = table.query(**kwargs)
+    total += result.get('Count', 0)
+    while 'LastEvaluatedKey' in result:
+        kwargs['ExclusiveStartKey'] = result['LastEvaluatedKey']
+        result = table.query(**kwargs)
+        total += result.get('Count', 0)
+    return total
+
+
+def _scan_recent_activities(limit=5):
+    """ActivityLogs에서 최근 N건 조회 — 최근 24시간만 FilterExpression으로 제한"""
+    cutoff = (datetime.now(KST) - timedelta(hours=24)).isoformat()
+    items = []
+    kwargs = {
+        'FilterExpression': Attr('event_time').gte(cutoff),
+    }
+    result = activity_logs_table.scan(**kwargs)
+    items.extend(result.get('Items', []))
+    while 'LastEvaluatedKey' in result:
+        kwargs['ExclusiveStartKey'] = result['LastEvaluatedKey']
+        result = activity_logs_table.scan(**kwargs)
+        items.extend(result.get('Items', []))
+    items.sort(key=lambda x: x.get('event_time', ''), reverse=True)
+    return items[:limit]
+
+
 def get_dashboard_summary(query_params: Dict[str, str]) -> Dict[str, Any]:
     """
     GET /api/dashboard-summary
-    Return aggregated dashboard data in a single call with caching.
+    GSI Query 기반 — full scan 없이 필요한 데이터만 조회.
     """
     global _dashboard_cache
 
@@ -2381,76 +2441,68 @@ def get_dashboard_summary(query_params: Dict[str, str]) -> Dict[str, Any]:
         print("[get_dashboard_summary] Returning cached data")
         return response(200, _dashboard_cache['data'])
 
-    print("[get_dashboard_summary] Building fresh data")
+    print("[get_dashboard_summary] Building fresh data via GSI queries")
+    start = time.time()
 
-    # 1. RoleRequests scan
-    tickets = []
     try:
-        result = role_requests_table.scan()
-        tickets = result.get('Items', [])
-        while 'LastEvaluatedKey' in result:
-            result = role_requests_table.scan(ExclusiveStartKey=result['LastEvaluatedKey'])
-            tickets.extend(result.get('Items', []))
-    except Exception as e:
-        print(f"[get_dashboard_summary] Error scanning tickets: {e}")
+        # RoleRequests — GSI StatusCreatedIndex로 조회
+        active_count = _query_count_by_status(role_requests_table, 'active')
+        pending_count = _query_count_by_status(role_requests_table, 'pending')
+        pending_tickets = _query_by_status(role_requests_table, 'pending', limit=5)
 
-    # Sort by created_at desc
-    tickets.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        # 최근 티켓 5건: 여러 status에서 최신순으로 가져와서 merge
+        recent_tickets = []
+        for s in ['pending', 'approved', 'active', 'expired', 'rejected', 'revoked', 'error']:
+            recent_tickets.extend(_query_by_status(role_requests_table, s, limit=5))
+        recent_tickets.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        recent_tickets = recent_tickets[:5]
 
-    pending_tickets = [t for t in tickets if t.get('status') == 'pending']
-    active_tickets = [t for t in tickets if t.get('status') == 'active']
+        # WorkRequests — GSI StatusCreatedIndex로 조회
+        pending_wr_count = _query_count_by_status(work_requests_table, 'pending')
+        in_progress_wr_count = _query_count_by_status(work_requests_table, 'in_progress')
+        total_wr_count = 0
+        for s in ['pending', 'in_progress', 'completed', 'cancelled']:
+            total_wr_count += _query_count_by_status(work_requests_table, s)
 
-    # 2. WorkRequests scan
-    work_requests = []
-    try:
-        result = work_requests_table.scan()
-        work_requests = result.get('Items', [])
-        while 'LastEvaluatedKey' in result:
-            result = work_requests_table.scan(ExclusiveStartKey=result['LastEvaluatedKey'])
-            work_requests.extend(result.get('Items', []))
-    except Exception as e:
-        print(f"[get_dashboard_summary] Error scanning work requests: {e}")
+        recent_wr = []
+        for s in ['pending', 'in_progress', 'completed', 'cancelled']:
+            recent_wr.extend(_query_by_status(work_requests_table, s, limit=5))
+        recent_wr.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        recent_wr = recent_wr[:5]
 
-    work_requests.sort(key=lambda x: x.get('created_at', ''), reverse=True)
-
-    pending_wr = [w for w in work_requests if w.get('status') == 'pending']
-    in_progress_wr = [w for w in work_requests if w.get('status') == 'in_progress']
-
-    # 3. Activities — reuse existing cache
-    activities = []
-    if _activities_cache['items'] is not None and (now - _activities_cache['timestamp']) < ACTIVITIES_CACHE_TTL:
-        activities = _activities_cache['items']
-    else:
-        try:
-            result = activity_logs_table.scan()
-            activities = result.get('Items', [])
-            while 'LastEvaluatedKey' in result:
-                result = activity_logs_table.scan(ExclusiveStartKey=result['LastEvaluatedKey'])
-                activities.extend(result.get('Items', []))
-            activities.sort(key=lambda x: x.get('event_time', ''), reverse=True)
+        # Activities — 캐시 활용, 없으면 최근 24시간만 scan
+        activities = []
+        if _activities_cache['items'] is not None and (now - _activities_cache['timestamp']) < ACTIVITIES_CACHE_TTL:
+            activities = _activities_cache['items'][:5]
+        else:
+            activities = _scan_recent_activities(limit=5)
             _activities_cache['items'] = activities
             _activities_cache['timestamp'] = now
-        except Exception as e:
-            print(f"[get_dashboard_summary] Error scanning activities: {e}")
 
-    data = {
-        'stats': {
-            'activeTickets': len(active_tickets),
-            'pendingTickets': len(pending_tickets),
-            'totalWorkRequests': len(work_requests),
-            'pendingWorkRequests': len(pending_wr),
-            'inProgressWorkRequests': len(in_progress_wr),
-        },
-        'recentTickets': tickets[:5],
-        'pendingTickets': pending_tickets[:5],
-        'recentWorkRequests': work_requests[:5],
-        'recentActivities': activities[:5],
-    }
+        data = {
+            'stats': {
+                'activeTickets': active_count,
+                'pendingTickets': pending_count,
+                'totalWorkRequests': total_wr_count,
+                'pendingWorkRequests': pending_wr_count,
+                'inProgressWorkRequests': in_progress_wr_count,
+            },
+            'recentTickets': recent_tickets,
+            'pendingTickets': pending_tickets,
+            'recentWorkRequests': recent_wr,
+            'recentActivities': activities,
+        }
 
-    _dashboard_cache['data'] = data
-    _dashboard_cache['timestamp'] = now
+        _dashboard_cache['data'] = data
+        _dashboard_cache['timestamp'] = time.time()
+        print(f"[get_dashboard_summary] Done in {time.time() - start:.2f}s")
+        return response(200, data)
 
-    return response(200, data)
+    except Exception as e:
+        print(f"[get_dashboard_summary] Error: {e}")
+        if _dashboard_cache['data']:
+            return response(200, _dashboard_cache['data'])
+        return response(500, {'error': f'대시보드 데이터 조회 실패: {str(e)}'})
 
 
 def response(status_code: int, body: Dict[str, Any]) -> Dict[str, Any]:

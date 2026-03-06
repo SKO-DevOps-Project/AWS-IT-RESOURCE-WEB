@@ -487,6 +487,27 @@ SERVICE_PERMISSIONS = {
             "cur:DescribeReportDefinitions",
         ],
     },
+    "ecr": {
+        "read": [
+            "ecr:Describe*", "ecr:Get*", "ecr:List*",
+            "ecr:BatchGetImage", "ecr:BatchCheckLayerAvailability",
+        ],
+        "update": [
+            "ecr:PutImage", "ecr:InitiateLayerUpload", "ecr:UploadLayerPart",
+            "ecr:CompleteLayerUpload", "ecr:BatchDeleteImage",
+            "ecr:TagResource", "ecr:UntagResource",
+            "ecr:PutImageTagMutability", "ecr:PutImageScanningConfiguration",
+            "ecr:PutLifecyclePolicy", "ecr:StartLifecyclePolicyPreview",
+            "ecr:SetRepositoryPolicy",
+        ],
+        "create": [
+            "ecr:CreateRepository", "ecr:CreatePullThroughCacheRule",
+        ],
+        "delete": [
+            "ecr:DeleteRepository", "ecr:DeleteRepositoryPolicy",
+            "ecr:DeleteLifecyclePolicy", "ecr:DeletePullThroughCacheRule",
+        ],
+    },
 }
 
 
@@ -682,7 +703,7 @@ class RoleManager:
         
         # Determine which services to include
         if 'all' in target_services:
-            services_to_include = ['ec2', 'rds', 'lambda', 's3', 'elasticbeanstalk', 'dynamodb', 'elasticloadbalancing', 'route53', 'amplify', 'billing']
+            services_to_include = ['ec2', 'rds', 'lambda', 's3', 'elasticbeanstalk', 'dynamodb', 'elasticloadbalancing', 'route53', 'amplify', 'billing', 'ecr']
         else:
             services_to_include = target_services
         

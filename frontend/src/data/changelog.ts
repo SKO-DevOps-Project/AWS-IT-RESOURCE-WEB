@@ -13,6 +13,15 @@ export interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    version: '1.3.0',
+    date: '2026-03-06',
+    title: 'ECR 서비스 추가',
+    showUntil: '2026-03-09',
+    items: [
+      { type: 'new', text: '대상 서비스에 ECR (컨테이너 레지스트리) 추가' },
+    ],
+  },
+  {
     version: '1.2.0',
     date: '2026-03-04',
     title: '나의 요청 & 알림 개선',
