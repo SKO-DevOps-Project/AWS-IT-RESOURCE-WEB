@@ -46,6 +46,8 @@ class TargetService(Enum):
     ROUTE53 = "route53"
     AMPLIFY = "amplify"
     BILLING = "billing"
+    ECR = "ecr"
+    EKS = "eks"
     ALL = "all"
 
 
@@ -57,7 +59,8 @@ VALID_SERVICES = [
     "aihub", "safety", "infra", "biz_drive", "alarm",
     "unit-mgnt", "software-updater", "sms-sender", "ai-nams",
     "fleet-mgnt", "bp-eval", "form-system", "sko-sso-auth",
-    "sko-sftp", "asset-mgmt", "ocean", "security365", "kca"
+    "sko-sftp", "asset-mgmt", "ocean", "security365", "kca",
+    "core"
 ]
 
 # Display names for services (shown in Mattermost)
@@ -79,6 +82,7 @@ SERVICE_DISPLAY_NAMES = {
     "asset-mgmt": "TAMS관리시스템",
     "ocean": "OCEAN",
     "security365": "Security365",
+    "core": "Core시스템",
     "kca": "무선국관리시스템",
 }
 
@@ -143,7 +147,6 @@ class RoleRequest:
         """
         result = {
             "request_id": self.request_id,
-            "requester_mattermost_id": self.requester_mattermost_id,
             "requester_name": self.requester_name,
             "iam_user_name": self.iam_user_name,
             "env": self.env,
@@ -161,7 +164,9 @@ class RoleRequest:
             "include_secrets_manager": self.include_secrets_manager,
         }
 
-        # Optional fields - only include if not None
+        # Optional fields - only include if not None/empty
+        if self.requester_mattermost_id:
+            result["requester_mattermost_id"] = self.requester_mattermost_id
         if self.approver_id is not None:
             result["approver_id"] = self.approver_id
         if self.rejection_reason is not None:
@@ -182,7 +187,7 @@ class RoleRequest:
         """Create from dictionary (DynamoDB record)"""
         return cls(
             request_id=data["request_id"],
-            requester_mattermost_id=data["requester_mattermost_id"],
+            requester_mattermost_id=data.get("requester_mattermost_id", ""),
             requester_name=data["requester_name"],
             iam_user_name=data["iam_user_name"],
             env=data["env"],

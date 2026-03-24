@@ -1406,6 +1406,7 @@ def get_role_request_options(event: Dict[str, Any]) -> Dict[str, Any]:
         {'value': 'amplify', 'label': 'Amplify (웹 호스팅)'},
         {'value': 'billing', 'label': 'Billing (비용 조회)'},
         {'value': 'ecr', 'label': 'ECR (컨테이너 레지스트리)'},
+        {'value': 'eks', 'label': 'EKS (쿠버네티스)'},
     ]
 
     # Environment options

@@ -154,6 +154,7 @@ def create_request_dialog(
                 {"text": "Amplify (웹 호스팅)", "value": "amplify"},
                 {"text": "Billing (비용 조회)", "value": "billing"},
                 {"text": "ECR (컨테이너 레지스트리)", "value": "ecr"},
+                {"text": "EKS (쿠버네티스)", "value": "eks"},
             ],
             "help_text": "권한이 필요한 AWS 서비스를 선택하세요",
         },

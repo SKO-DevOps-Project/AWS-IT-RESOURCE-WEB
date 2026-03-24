@@ -400,6 +400,10 @@ SERVICE_PERMISSIONS = {
             "cloudwatch:Describe*",
             "cloudwatch:Get*",
             "cloudwatch:List*",
+            # ACM 인증서 조회 (ELB에 인증서 연결 시 필요)
+            "acm:ListCertificates",
+            "acm:DescribeCertificate",
+            "acm:GetCertificate",
         ],
         "update": [
             "elasticloadbalancing:ModifyLoadBalancerAttributes",
@@ -412,6 +416,8 @@ SERVICE_PERMISSIONS = {
             "elasticloadbalancing:RemoveTags",
             "elasticloadbalancing:RegisterTargets",
             "elasticloadbalancing:DeregisterTargets",
+            "elasticloadbalancing:AddListenerCertificates",
+            "elasticloadbalancing:RemoveListenerCertificates",
         ],
         "create": [
             "elasticloadbalancing:CreateLoadBalancer",
@@ -431,12 +437,19 @@ SERVICE_PERMISSIONS = {
             "route53:Get*",
             "route53:List*",
             "route53:TestDNSAnswer",
+            "route53:GetHostedZoneCount",
+            "route53:GetHostedZoneLimit",
+            "route53:GetAccountLimit",
+            "route53:GetDNSSEC",
+            "route53:GetQueryLoggingConfig",
             "route53domains:Get*",
             "route53domains:List*",
         ],
         "update": [
             "route53:ChangeResourceRecordSets",
             "route53:ChangeTagsForResource",
+            "route53:AssociateVPCWithHostedZone",
+            "route53:DisassociateVPCFromHostedZone",
         ],
         "create": [
             "route53:CreateHostedZone",
@@ -506,6 +519,70 @@ SERVICE_PERMISSIONS = {
         "delete": [
             "ecr:DeleteRepository", "ecr:DeleteRepositoryPolicy",
             "ecr:DeleteLifecyclePolicy", "ecr:DeletePullThroughCacheRule",
+        ],
+    },
+    "eks": {
+        "read": [
+            "eks:DescribeCluster",
+            "eks:DescribeNodegroup",
+            "eks:DescribeAddon",
+            "eks:DescribeFargateProfile",
+            "eks:DescribeUpdate",
+            "eks:DescribeAccessEntry",
+            "eks:ListClusters",
+            "eks:ListNodegroups",
+            "eks:ListAddons",
+            "eks:ListFargateProfiles",
+            "eks:ListUpdates",
+            "eks:ListAccessEntries",
+            "eks:ListAccessPolicies",
+            "eks:AccessKubernetesApi",
+            # EKS 클러스터 생성/관리에 필요한 EC2 네트워크 읽기 권한
+            "ec2:DescribeSubnets",
+            "ec2:DescribeVpcs",
+            "ec2:DescribeSecurityGroups",
+            "ec2:DescribeSecurityGroupRules",
+            "ec2:DescribeRouteTables",
+            "ec2:DescribeInternetGateways",
+            "ec2:DescribeNatGateways",
+            # CloudWatch/Logs
+            "cloudwatch:Describe*",
+            "cloudwatch:Get*",
+            "cloudwatch:List*",
+            "logs:DescribeLogGroups",
+            "logs:GetLogEvents",
+            "logs:FilterLogEvents",
+        ],
+        "update": [
+            "eks:UpdateClusterConfig",
+            "eks:UpdateNodegroupConfig",
+            "eks:UpdateClusterVersion",
+            "eks:UpdateAddon",
+            "eks:TagResource",
+            "eks:UntagResource",
+            "eks:AssociateAccessPolicy",
+            "eks:DisassociateAccessPolicy",
+            "eks:UpdateAccessEntry",
+        ],
+        "create": [
+            "eks:CreateCluster",
+            "eks:CreateNodegroup",
+            "eks:CreateAddon",
+            "eks:CreateFargateProfile",
+            "eks:CreateAccessEntry",
+            "iam:CreateServiceLinkedRole",
+            # EKS 클러스터용 Security Group 생성
+            "ec2:CreateSecurityGroup",
+            "ec2:AuthorizeSecurityGroupIngress",
+            "ec2:AuthorizeSecurityGroupEgress",
+            "ec2:CreateTags",
+        ],
+        "delete": [
+            "eks:DeleteCluster",
+            "eks:DeleteNodegroup",
+            "eks:DeleteAddon",
+            "eks:DeleteFargateProfile",
+            "eks:DeleteAccessEntry",
         ],
     },
 }
@@ -583,21 +660,25 @@ class RoleManager:
         role_arn = role_response["Role"]["Arn"]
         print(f"[RoleManager] Role created: {role_arn}")
         
-        # Create permission policy (inline policy: 10,240 byte limit vs managed 6,144)
+        # Create permission policy (inline policy: 10,240 byte limit per policy)
         permission_policy = self._generate_permission_policy(request)
-        policy_json = json.dumps(permission_policy)
-        print(f"[RoleManager] Policy size: {len(policy_json)} bytes")
+        policy_parts = self._split_policy_if_needed(permission_policy, role_name)
+        print(f"[RoleManager] Policy split into {len(policy_parts)} part(s)")
 
-        self.iam_client.put_role_policy(
-            RoleName=role_name,
-            PolicyName=policy_name,
-            PolicyDocument=policy_json,
-        )
-        print(f"[RoleManager] Inline policy attached: {policy_name}")
+        policy_names = []
+        for part_name, part_json in policy_parts:
+            print(f"[RoleManager] Attaching policy: {part_name} ({len(part_json)} bytes)")
+            self.iam_client.put_role_policy(
+                RoleName=role_name,
+                PolicyName=part_name,
+                PolicyDocument=part_json,
+            )
+            policy_names.append(part_name)
+        print(f"[RoleManager] All inline policies attached: {policy_names}")
 
         return {
             "role_arn": role_arn,
-            "policy_arn": policy_name,
+            "policy_arn": ",".join(policy_names),
             "role_name": role_name,
         }
     
@@ -645,12 +726,17 @@ class RoleManager:
             except self.iam_client.exceptions.NoSuchEntityException:
                 pass
         else:
-            # Inline policy: delete inline policy then role
+            # Inline policy: list and delete ALL inline policies, then delete role
             try:
-                self.iam_client.delete_role_policy(
-                    RoleName=role_name,
-                    PolicyName=policy_arn,
-                )
+                response = self.iam_client.list_role_policies(RoleName=role_name)
+                for inline_name in response.get('PolicyNames', []):
+                    try:
+                        self.iam_client.delete_role_policy(
+                            RoleName=role_name,
+                            PolicyName=inline_name,
+                        )
+                    except self.iam_client.exceptions.NoSuchEntityException:
+                        pass
             except self.iam_client.exceptions.NoSuchEntityException:
                 pass
 
@@ -659,6 +745,67 @@ class RoleManager:
             except self.iam_client.exceptions.NoSuchEntityException:
                 pass
     
+    def _split_policy_if_needed(
+        self,
+        policy: Dict[str, Any],
+        role_name: str,
+    ) -> List[tuple]:
+        """
+        Split policy into multiple inline policies if it exceeds 10,240 bytes.
+        AWS inline policy limit is 10,240 bytes per policy, max 10 policies per role.
+
+        Returns:
+            List of (policy_name, policy_json_str) tuples
+        """
+        MAX_INLINE_POLICY_SIZE = 10240
+
+        policy_json = json.dumps(policy)
+        if len(policy_json) <= MAX_INLINE_POLICY_SIZE:
+            return [(f"{role_name}-policy", policy_json)]
+
+        print(f"[RoleManager] Policy size {len(policy_json)} bytes exceeds {MAX_INLINE_POLICY_SIZE} limit, splitting...")
+
+        statements = policy["Statement"]
+        policies = []
+        current_statements = []
+        policy_index = 1
+
+        for stmt in statements:
+            test_policy = {
+                "Version": "2012-10-17",
+                "Statement": current_statements + [stmt],
+            }
+            test_json = json.dumps(test_policy)
+
+            if len(test_json) > MAX_INLINE_POLICY_SIZE and current_statements:
+                # Flush current group as a policy
+                flush_policy = {
+                    "Version": "2012-10-17",
+                    "Statement": current_statements,
+                }
+                policies.append((
+                    f"{role_name}-policy-{policy_index}",
+                    json.dumps(flush_policy),
+                ))
+                policy_index += 1
+                current_statements = [stmt]
+            else:
+                current_statements.append(stmt)
+
+        # Flush remaining statements
+        if current_statements:
+            flush_policy = {
+                "Version": "2012-10-17",
+                "Statement": current_statements,
+            }
+            policies.append((
+                f"{role_name}-policy-{policy_index}",
+                json.dumps(flush_policy),
+            ))
+
+        print(f"[RoleManager] Split into {len(policies)} policies: {[p[0] for p in policies]}")
+        return policies
+
     def _generate_trust_policy(self, request: RoleRequest) -> Dict[str, Any]:
         """
         Generate trust policy for the role
@@ -703,7 +850,7 @@ class RoleManager:
         
         # Determine which services to include
         if 'all' in target_services:
-            services_to_include = ['ec2', 'rds', 'lambda', 's3', 'elasticbeanstalk', 'dynamodb', 'elasticloadbalancing', 'route53', 'amplify', 'billing', 'ecr']
+            services_to_include = ['ec2', 'rds', 'lambda', 's3', 'elasticbeanstalk', 'dynamodb', 'elasticloadbalancing', 'route53', 'amplify', 'billing', 'ecr', 'eks']
         else:
             services_to_include = target_services
         
@@ -839,6 +986,7 @@ class RoleManager:
                 "dynamodb:TagResource",
                 "autoscaling:CreateOrUpdateTags",
                 "elasticbeanstalk:AddTags",
+                "eks:TagResource",
             ]
             statements.append({
                 "Sid": "CreateWithTags",
@@ -862,6 +1010,17 @@ class RoleManager:
                     "Action": "iam:PassRole",
                     "Resource": "*",
                     "Condition": {"StringEquals": {"iam:PassedToService": "ec2.amazonaws.com"}}
+                })
+
+        # EKS + create 이상일 때 PassRole Statement 추가
+        if 'eks' in services_to_include:
+            if permission_type in ['read_update_create', 'full']:
+                statements.append({
+                    "Sid": "PassRoleForEKS",
+                    "Effect": "Allow",
+                    "Action": "iam:PassRole",
+                    "Resource": "*",
+                    "Condition": {"StringEquals": {"iam:PassedToService": "eks.amazonaws.com"}}
                 })
 
         # Parameter Store / Secrets Manager 읽기 권한 (체크박스 기반)

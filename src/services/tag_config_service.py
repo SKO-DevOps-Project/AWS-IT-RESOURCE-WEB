@@ -24,7 +24,8 @@ _FALLBACK_SERVICES = [
     "aihub", "safety", "infra", "biz_drive", "alarm",
     "unit-mgnt", "software-updater", "sms-sender", "ai-nams",
     "fleet-mgnt", "bp-eval", "form-system", "sko-sso-auth",
-    "sko-sftp", "asset-mgmt", "ocean", "security365", "kca"
+    "sko-sftp", "asset-mgmt", "ocean", "security365", "kca",
+    "core"
 ]
 
 _FALLBACK_SERVICE_DISPLAY_NAMES = {
@@ -46,6 +47,7 @@ _FALLBACK_SERVICE_DISPLAY_NAMES = {
     "ocean": "OCEAN",
     "security365": "Security365",
     "kca": "무선국관리시스템",
+    "core": "Core시스템",
 }
 
 
