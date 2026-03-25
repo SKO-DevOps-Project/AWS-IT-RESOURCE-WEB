@@ -159,27 +159,27 @@ def create_request_dialog(
             "help_text": "권한이 필요한 AWS 서비스를 선택하세요",
         },
         {
-            "display_name": "Parameter Store 읽기 권한",
+            "display_name": "Parameter Store 권한",
             "name": "include_parameter_store",
             "type": "select",
             "default": "false",
             "options": [
                 {"text": "사용 안함", "value": "false"},
-                {"text": "사용 (읽기전용)", "value": "true"},
+                {"text": "사용 (권한 타입에 따름)", "value": "true"},
             ],
-            "help_text": "SSM Parameter Store 읽기 권한을 추가합니다",
+            "help_text": "SSM Parameter Store 권한을 추가합니다 (권한 타입에 따라 읽기/수정/생성/삭제)",
             "optional": True,
         },
         {
-            "display_name": "Secrets Manager 읽기 권한",
+            "display_name": "Secrets Manager 권한",
             "name": "include_secrets_manager",
             "type": "select",
             "default": "false",
             "options": [
                 {"text": "사용 안함", "value": "false"},
-                {"text": "사용 (읽기전용)", "value": "true"},
+                {"text": "사용 (권한 타입에 따름)", "value": "true"},
             ],
-            "help_text": "Secrets Manager 읽기 권한을 추가합니다",
+            "help_text": "Secrets Manager 권한을 추가합니다 (권한 타입에 따라 읽기/수정/생성/삭제)",
             "optional": True,
         },
         {

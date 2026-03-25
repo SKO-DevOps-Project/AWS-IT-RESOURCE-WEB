@@ -1040,28 +1040,47 @@ class RoleManager:
                     "Condition": {"StringEquals": {"iam:PassedToService": "eks.amazonaws.com"}}
                 })
 
-        # Parameter Store / Secrets Manager 읽기 권한 (체크박스 기반)
+        # Parameter Store 권한 (권한 타입에 따라 범위 결정)
         if getattr(request, 'include_parameter_store', False):
-            read_actions_extra = [
+            ps_actions = [
                 "ssm:GetParameter", "ssm:GetParameters",
                 "ssm:GetParametersByPath", "ssm:DescribeParameters",
             ]
+            if permission_type in ['read_update', 'read_update_create', 'full']:
+                ps_actions.append("ssm:PutParameter")
+                ps_actions.append("ssm:AddTagsToResource")
+                ps_actions.append("ssm:RemoveTagsFromResource")
+            if permission_type in ['read_update_create', 'full']:
+                ps_actions.append("ssm:PutParameter")  # 신규 생성도 PutParameter
+            if permission_type == 'full':
+                ps_actions.append("ssm:DeleteParameter")
+                ps_actions.append("ssm:DeleteParameters")
             statements.append({
-                "Sid": "ParameterStoreReadAccess",
+                "Sid": "ParameterStoreAccess",
                 "Effect": "Allow",
-                "Action": read_actions_extra,
+                "Action": list(set(ps_actions)),
                 "Resource": "*",
             })
 
+        # Secrets Manager 권한 (권한 타입에 따라 범위 결정)
         if getattr(request, 'include_secrets_manager', False):
-            read_actions_extra = [
+            sm_actions = [
                 "secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret",
                 "secretsmanager:ListSecrets", "secretsmanager:ListSecretVersionIds",
             ]
+            if permission_type in ['read_update', 'read_update_create', 'full']:
+                sm_actions.append("secretsmanager:PutSecretValue")
+                sm_actions.append("secretsmanager:UpdateSecret")
+                sm_actions.append("secretsmanager:TagResource")
+                sm_actions.append("secretsmanager:UntagResource")
+            if permission_type in ['read_update_create', 'full']:
+                sm_actions.append("secretsmanager:CreateSecret")
+            if permission_type == 'full':
+                sm_actions.append("secretsmanager:DeleteSecret")
             statements.append({
-                "Sid": "SecretsManagerReadAccess",
+                "Sid": "SecretsManagerAccess",
                 "Effect": "Allow",
-                "Action": read_actions_extra,
+                "Action": list(set(sm_actions)),
                 "Resource": "*",
             })
 
