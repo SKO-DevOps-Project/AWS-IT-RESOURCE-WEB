@@ -697,10 +697,6 @@ class RoleManager:
                     PolicyName=part_name,
                     PolicyDocument=part_json,
                     Description=f"Dynamic policy for {request.iam_user_name}",
-                    Tags=[
-                        {"Key": "RequestId", "Value": request.request_id},
-                        {"Key": "Owner", "Value": "N1104365"},
-                    ],
                 )
                 policy_arn = create_resp["Policy"]["Arn"]
                 managed_arns.append(policy_arn)
