@@ -660,111 +660,135 @@ class RoleManager:
         role_arn = role_response["Role"]["Arn"]
         print(f"[RoleManager] Role created: {role_arn}")
         
-        # Create permission policy (inline policy: 10,240 byte limit per policy)
+        # Create permission policy
+        # Inline policy limit: 10,240 bytes TOTAL for all inline policies on a role
+        # Managed policy limit: 6,144 bytes per policy, up to 10 per role
         permission_policy = self._generate_permission_policy(request)
-        policy_parts = self._split_policy_if_needed(permission_policy, role_name)
-        print(f"[RoleManager] Policy split into {len(policy_parts)} part(s)")
+        policy_json = json.dumps(permission_policy)
+        print(f"[RoleManager] Policy size: {len(policy_json)} bytes")
 
-        policy_names = []
-        for part_name, part_json in policy_parts:
-            print(f"[RoleManager] Attaching policy: {part_name} ({len(part_json)} bytes)")
+        MAX_INLINE_SIZE = 10240
+        MAX_MANAGED_SIZE = 6144
+
+        if len(policy_json) <= MAX_INLINE_SIZE:
+            # Fits in a single inline policy
+            inline_name = f"{role_name}-policy"
             self.iam_client.put_role_policy(
                 RoleName=role_name,
-                PolicyName=part_name,
-                PolicyDocument=part_json,
+                PolicyName=inline_name,
+                PolicyDocument=policy_json,
             )
-            policy_names.append(part_name)
-        print(f"[RoleManager] All inline policies attached: {policy_names}")
+            print(f"[RoleManager] Inline policy attached: {inline_name}")
+            return {
+                "role_arn": role_arn,
+                "policy_arn": inline_name,
+                "role_name": role_name,
+            }
+        else:
+            # Too large for inline → split into managed policies (6,144 bytes each)
+            print(f"[RoleManager] Policy exceeds inline limit ({MAX_INLINE_SIZE}), using managed policies")
+            policy_parts = self._split_policy(permission_policy, role_name, MAX_MANAGED_SIZE)
+            print(f"[RoleManager] Split into {len(policy_parts)} managed policies")
 
-        return {
-            "role_arn": role_arn,
-            "policy_arn": ",".join(policy_names),
-            "role_name": role_name,
-        }
-    
-    def delete_dynamic_role(self, role_arn: str, policy_arn: str) -> None:
-        """
-        Delete dynamic role and policy (supports both inline and managed policies)
+            managed_arns = []
+            for part_name, part_json in policy_parts:
+                print(f"[RoleManager] Creating managed policy: {part_name} ({len(part_json)} bytes)")
+                create_resp = self.iam_client.create_policy(
+                    PolicyName=part_name,
+                    PolicyDocument=part_json,
+                    Description=f"Dynamic policy for {request.iam_user_name}",
+                    Tags=[
+                        {"Key": "RequestId", "Value": request.request_id},
+                        {"Key": "Owner", "Value": "N1104365"},
+                    ],
+                )
+                policy_arn = create_resp["Policy"]["Arn"]
+                managed_arns.append(policy_arn)
 
-        Args:
-            role_arn: Role ARN to delete
-            policy_arn: Policy ARN (arn:aws:iam::...) or inline policy name
-        """
-        role_name = role_arn.split("/")[-1]
-        is_managed = policy_arn.startswith("arn:")
-
-        if is_managed:
-            # Legacy managed policy: detach then delete
-            try:
-                self.iam_client.detach_role_policy(
+                self.iam_client.attach_role_policy(
                     RoleName=role_name,
                     PolicyArn=policy_arn,
                 )
-            except self.iam_client.exceptions.NoSuchEntityException:
-                pass
+                print(f"[RoleManager] Attached managed policy: {policy_arn}")
 
-            # Delete role
-            try:
-                self.iam_client.delete_role(RoleName=role_name)
-            except self.iam_client.exceptions.NoSuchEntityException:
-                pass
-
-            # Delete non-default policy versions before deleting managed policy
-            try:
-                versions = self.iam_client.list_policy_versions(PolicyArn=policy_arn)
-                for version in versions.get('Versions', []):
-                    if not version['IsDefaultVersion']:
-                        self.iam_client.delete_policy_version(
-                            PolicyArn=policy_arn,
-                            VersionId=version['VersionId'],
-                        )
-            except self.iam_client.exceptions.NoSuchEntityException:
-                pass
-
-            try:
-                self.iam_client.delete_policy(PolicyArn=policy_arn)
-            except self.iam_client.exceptions.NoSuchEntityException:
-                pass
-        else:
-            # Inline policy: list and delete ALL inline policies, then delete role
-            try:
-                response = self.iam_client.list_role_policies(RoleName=role_name)
-                for inline_name in response.get('PolicyNames', []):
-                    try:
-                        self.iam_client.delete_role_policy(
-                            RoleName=role_name,
-                            PolicyName=inline_name,
-                        )
-                    except self.iam_client.exceptions.NoSuchEntityException:
-                        pass
-            except self.iam_client.exceptions.NoSuchEntityException:
-                pass
-
-            try:
-                self.iam_client.delete_role(RoleName=role_name)
-            except self.iam_client.exceptions.NoSuchEntityException:
-                pass
+            return {
+                "role_arn": role_arn,
+                "policy_arn": ",".join(managed_arns),
+                "role_name": role_name,
+            }
     
-    def _split_policy_if_needed(
+    def delete_dynamic_role(self, role_arn: str, policy_arn: str) -> None:
+        """
+        Delete dynamic role and all attached policies (inline + managed).
+
+        Args:
+            role_arn: Role ARN to delete
+            policy_arn: Comma-separated policy ARNs or inline policy name(s)
+        """
+        role_name = role_arn.split("/")[-1]
+        print(f"[RoleManager] Deleting role: {role_name}")
+
+        # 1. Delete all inline policies
+        try:
+            response = self.iam_client.list_role_policies(RoleName=role_name)
+            for inline_name in response.get('PolicyNames', []):
+                try:
+                    self.iam_client.delete_role_policy(
+                        RoleName=role_name, PolicyName=inline_name,
+                    )
+                    print(f"[RoleManager] Deleted inline policy: {inline_name}")
+                except self.iam_client.exceptions.NoSuchEntityException:
+                    pass
+        except self.iam_client.exceptions.NoSuchEntityException:
+            pass
+
+        # 2. Detach and delete all managed policies
+        try:
+            response = self.iam_client.list_attached_role_policies(RoleName=role_name)
+            for attached in response.get('AttachedPolicies', []):
+                p_arn = attached['PolicyArn']
+                try:
+                    self.iam_client.detach_role_policy(
+                        RoleName=role_name, PolicyArn=p_arn,
+                    )
+                    print(f"[RoleManager] Detached managed policy: {p_arn}")
+                except self.iam_client.exceptions.NoSuchEntityException:
+                    pass
+
+                # Delete managed policy (remove non-default versions first)
+                try:
+                    versions = self.iam_client.list_policy_versions(PolicyArn=p_arn)
+                    for version in versions.get('Versions', []):
+                        if not version['IsDefaultVersion']:
+                            self.iam_client.delete_policy_version(
+                                PolicyArn=p_arn, VersionId=version['VersionId'],
+                            )
+                    self.iam_client.delete_policy(PolicyArn=p_arn)
+                    print(f"[RoleManager] Deleted managed policy: {p_arn}")
+                except self.iam_client.exceptions.NoSuchEntityException:
+                    pass
+        except self.iam_client.exceptions.NoSuchEntityException:
+            pass
+
+        # 3. Delete the role
+        try:
+            self.iam_client.delete_role(RoleName=role_name)
+            print(f"[RoleManager] Deleted role: {role_name}")
+        except self.iam_client.exceptions.NoSuchEntityException:
+            pass
+    
+    def _split_policy(
         self,
         policy: Dict[str, Any],
         role_name: str,
+        max_size: int,
     ) -> List[tuple]:
         """
-        Split policy into multiple inline policies if it exceeds 10,240 bytes.
-        AWS inline policy limit is 10,240 bytes per policy, max 10 policies per role.
+        Split policy into multiple parts, each under max_size bytes.
 
         Returns:
             List of (policy_name, policy_json_str) tuples
         """
-        MAX_INLINE_POLICY_SIZE = 10240
-
-        policy_json = json.dumps(policy)
-        if len(policy_json) <= MAX_INLINE_POLICY_SIZE:
-            return [(f"{role_name}-policy", policy_json)]
-
-        print(f"[RoleManager] Policy size {len(policy_json)} bytes exceeds {MAX_INLINE_POLICY_SIZE} limit, splitting...")
-
         statements = policy["Statement"]
         policies = []
         current_statements = []
@@ -777,8 +801,7 @@ class RoleManager:
             }
             test_json = json.dumps(test_policy)
 
-            if len(test_json) > MAX_INLINE_POLICY_SIZE and current_statements:
-                # Flush current group as a policy
+            if len(test_json) > max_size and current_statements:
                 flush_policy = {
                     "Version": "2012-10-17",
                     "Statement": current_statements,
@@ -792,7 +815,6 @@ class RoleManager:
             else:
                 current_statements.append(stmt)
 
-        # Flush remaining statements
         if current_statements:
             flush_policy = {
                 "Version": "2012-10-17",
@@ -803,7 +825,6 @@ class RoleManager:
                 json.dumps(flush_policy),
             ))
 
-        print(f"[RoleManager] Split into {len(policies)} policies: {[p[0] for p in policies]}")
         return policies
 
     def _generate_trust_policy(self, request: RoleRequest) -> Dict[str, Any]:
