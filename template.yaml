@@ -84,6 +84,8 @@ Resources:
           AttributeType: S
         - AttributeName: status
           AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
       KeySchema:
         - AttributeName: request_id
           KeyType: HASH
@@ -98,6 +100,14 @@ Resources:
           KeySchema:
             - AttributeName: status
               KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: StatusCreatedIndex
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
           Projection:
             ProjectionType: ALL
       Tags:
@@ -190,6 +200,10 @@ Resources:
           AttributeType: S
         - AttributeName: service_name
           AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
       KeySchema:
         - AttributeName: request_id
           KeyType: HASH
@@ -198,6 +212,14 @@ Resources:
           KeySchema:
             - AttributeName: service_name
               KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: StatusCreatedIndex
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
           Projection:
             ProjectionType: ALL
       Tags:

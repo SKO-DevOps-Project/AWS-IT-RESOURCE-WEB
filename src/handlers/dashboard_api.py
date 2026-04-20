@@ -427,66 +427,79 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 def get_tickets(query_params: Dict[str, str]) -> Dict[str, Any]:
     """
     GET /api/tickets
-    Get list of role requests (tickets)
+    Get list of role requests (tickets), sorted by created_at descending.
 
     Query params:
     - status: Filter by status (pending, approved, active, expired, etc.)
-    - user_name: Filter by requester name
+              If provided, uses StatusCreatedIndex GSI for efficient query.
+              If not provided, scans entire table with pagination.
+    - user_name: Filter by requester name (client-side after fetch)
+    - iam_user_name: Filter by iam_user_name (server-side)
     - limit: Max items to return (default 50)
-    - last_key: Pagination key
     """
     status = query_params.get('status')
     user_name = query_params.get('user_name')
+    iam_user_name = query_params.get('iam_user_name')
     limit = int(query_params.get('limit', '50'))
-    last_key = query_params.get('last_key')
 
-    scan_kwargs = {
-        'Limit': limit,
-    }
-
-    # Add filter expressions
-    filter_expressions = []
-    expression_values = {}
-    expression_names = {}
+    items = []
 
     if status:
-        filter_expressions.append('#status = :status')
-        expression_values[':status'] = status
-        expression_names['#status'] = 'status'
+        # status 필터 있음 → GSI Query (created_at DESC)
+        query_kwargs = {
+            'IndexName': 'StatusCreatedIndex',
+            'KeyConditionExpression': Key('status').eq(status),
+            'ScanIndexForward': False,  # created_at 내림차순
+            'Limit': limit,
+        }
+        if iam_user_name:
+            query_kwargs['FilterExpression'] = Attr('iam_user_name').eq(iam_user_name)
 
+        # FilterExpression은 Limit 이후 적용되므로 충분한 데이터 확보 위해 반복
+        while len(items) < limit:
+            result = role_requests_table.query(**query_kwargs)
+            items.extend(result.get('Items', []))
+            if 'LastEvaluatedKey' not in result:
+                break
+            query_kwargs['ExclusiveStartKey'] = result['LastEvaluatedKey']
+    else:
+        # status 필터 없음 → 전체 scan (pagination으로 모든 데이터 확보)
+        scan_kwargs = {}
+        filter_expressions = []
+        expression_values = {}
+
+        if iam_user_name:
+            filter_expressions.append('iam_user_name = :iam_user_name')
+            expression_values[':iam_user_name'] = iam_user_name
+
+        if filter_expressions:
+            scan_kwargs['FilterExpression'] = ' AND '.join(filter_expressions)
+            scan_kwargs['ExpressionAttributeValues'] = expression_values
+
+        while True:
+            result = role_requests_table.scan(**scan_kwargs)
+            items.extend(result.get('Items', []))
+            if 'LastEvaluatedKey' not in result:
+                break
+            scan_kwargs['ExclusiveStartKey'] = result['LastEvaluatedKey']
+
+        # created_at 내림차순 정렬
+        items.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+
+    # Client-side user_name filter (requester_name contains)
     if user_name:
-        filter_expressions.append('contains(requester_name, :user_name)')
-        expression_values[':user_name'] = user_name
+        items = [
+            item for item in items
+            if user_name.lower() in item.get('requester_name', '').lower()
+        ]
 
-    iam_user_name = query_params.get('iam_user_name')
-    if iam_user_name:
-        filter_expressions.append('iam_user_name = :iam_user_name')
-        expression_values[':iam_user_name'] = iam_user_name
+    # limit 적용
+    items = items[:limit]
 
-    if filter_expressions:
-        scan_kwargs['FilterExpression'] = ' AND '.join(filter_expressions)
-        scan_kwargs['ExpressionAttributeValues'] = expression_values
-        if expression_names:
-            scan_kwargs['ExpressionAttributeNames'] = expression_names
-
-    if last_key:
-        scan_kwargs['ExclusiveStartKey'] = json.loads(last_key)
-
-    result = role_requests_table.scan(**scan_kwargs)
-
-    # Sort by created_at descending
-    items = result.get('Items', [])
-    items.sort(key=lambda x: x.get('created_at', ''), reverse=True)
-
-    response_data = {
+    return response(200, {
         'tickets': items,
         'count': len(items),
-    }
-
-    if 'LastEvaluatedKey' in result:
-        response_data['last_key'] = json.dumps(result['LastEvaluatedKey'])
-
-    return response(200, response_data)
+    })
 
 
 def get_ticket_detail(request_id: str) -> Dict[str, Any]:
