@@ -2,9 +2,13 @@
 Mattermost API client for AWS Role Request System
 """
 import os
+import re
 import requests
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+
+# Mattermost user_id 형식: 26자 소문자 영숫자
+_MATTERMOST_USER_ID_RE = re.compile(r'^[a-z0-9]{26}$')
 
 
 @dataclass
@@ -135,24 +139,35 @@ class MattermostClient:
     
     def send_dm(self, user_id: str, message: str) -> Dict[str, Any]:
         """
-        Send a direct message to a user
-        
+        Send a direct message to a user.
+        user_id가 26자 영숫자가 아니면 username으로 간주하고 자동 lookup.
+
         Args:
-            user_id: Mattermost user ID
+            user_id: Mattermost user ID (26자) 또는 username
             message: Message text
-        
+
         Returns:
             API response
         """
+        # 26자 영숫자 user_id 형식이 아니면 username으로 간주하여 lookup
+        target_user_id = user_id
+        if not _MATTERMOST_USER_ID_RE.match(user_id):
+            print(f"[MattermostClient] '{user_id}' is not a user_id, looking up as username")
+            user = self.get_user_by_username(user_id)
+            if not user:
+                raise ValueError(f"User not found by username: {user_id}")
+            target_user_id = user["id"]
+            print(f"[MattermostClient] Resolved username '{user_id}' → user_id '{target_user_id}'")
+
         # First, create or get the DM channel
         channel_response = requests.post(
             f"{self.base_url}/api/v4/channels/direct",
             headers=self.headers,
-            json=[self._get_bot_user_id(), user_id],
+            json=[self._get_bot_user_id(), target_user_id],
         )
         channel_response.raise_for_status()
         channel_id = channel_response.json()["id"]
-        
+
         # Then send the message
         return self.send_to_channel(channel_id, message)
 
@@ -397,7 +412,7 @@ def create_approval_message(
     # Target service display names
     target_service_names = {
         "all": "전체",
-        "ec2": "EC2 (SSM 접속 포함)",
+        "ec2": "EC2",
         "rds": "RDS",
         "lambda": "Lambda",
         "s3": "S3",
