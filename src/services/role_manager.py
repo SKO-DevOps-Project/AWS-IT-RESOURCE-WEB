@@ -2,6 +2,7 @@
 Role Manager Service for AWS Role Request System
 Handles IAM Role and Policy creation/deletion
 """
+import os
 import json
 import boto3
 from datetime import datetime, timezone, timedelta
@@ -597,10 +598,19 @@ class RoleManager:
         iam_client=None,
         account_id: Optional[str] = None,
         company_ip_range: Optional[str] = None,
+        bastion_instance_id: Optional[str] = None,
+        bastion_region: Optional[str] = None,
     ):
         self.iam_client = iam_client or boto3.client("iam")
         self.account_id = account_id or boto3.client("sts").get_caller_identity()["Account"]
         self.company_ip_range = company_ip_range or "0.0.0.0/0"
+        # Bastion: SSH 차단 정책에 따라 모든 role에 SSM 접근 기본 부여
+        self.bastion_instance_id = bastion_instance_id or os.environ.get(
+            "BASTION_INSTANCE_ID", "i-01af38d47bfa846a6"
+        )
+        self.bastion_region = bastion_region or os.environ.get(
+            "BASTION_REGION", "ap-northeast-2"
+        )
     
     def generate_role_name(self, request: RoleRequest) -> str:
         """
@@ -992,6 +1002,59 @@ class RoleManager:
                         "arn:aws:ssm:*:*:document/SSM-SessionManagerRunShell"
                     ]
                 })
+
+        # ============================================================
+        # Bastion SSM Access (모든 role에 기본 포함 - SSH 차단 정책)
+        # target_services, permission_type 무관하게 항상 추가
+        # ============================================================
+        bastion_arn = (
+            f"arn:aws:ec2:{self.bastion_region}:{self.account_id}"
+            f":instance/{self.bastion_instance_id}"
+        )
+
+        # (a) SSM 세션 시작에 필요한 읽기/통신 액션 (리소스 ARN 미지원 → "*")
+        statements.append({
+            "Sid": "BastionSSMReadAndChannel",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:DescribeInstances",
+                "ssm:DescribeSessions",
+                "ssm:GetConnectionStatus",
+                "ssm:DescribeInstanceInformation",
+                "ssm:DescribeInstanceProperties",
+                "ssmmessages:CreateControlChannel",
+                "ssmmessages:CreateDataChannel",
+                "ssmmessages:OpenControlChannel",
+                "ssmmessages:OpenDataChannel",
+                "ec2messages:AcknowledgeMessage",
+                "ec2messages:GetEndpoint",
+                "ec2messages:GetMessages",
+                "ec2messages:SendReply",
+            ],
+            "Resource": "*",
+        })
+
+        # (b) StartSession — bastion 인스턴스 + 표준 SSM 문서만 허용
+        statements.append({
+            "Sid": "BastionSSMStartSession",
+            "Effect": "Allow",
+            "Action": "ssm:StartSession",
+            "Resource": [
+                bastion_arn,
+                "arn:aws:ssm:*:*:document/AWS-StartSSHSession",
+                "arn:aws:ssm:*:*:document/SSM-SessionManagerRunShell",
+                "arn:aws:ssm:*:*:document/AWS-StartPortForwardingSession",
+                "arn:aws:ssm:*:*:document/AWS-StartPortForwardingSessionToRemoteHost",
+            ],
+        })
+
+        # (c) 세션 종료/재개
+        statements.append({
+            "Sid": "BastionSSMSessionControl",
+            "Effect": "Allow",
+            "Action": ["ssm:TerminateSession", "ssm:ResumeSession"],
+            "Resource": "arn:aws:ssm:*:*:session/*",
+        })
 
         # Statement 3: Create permissions with tag enforcement (CreateWithTags + AllowCreateTags 합침)
         if create_actions:

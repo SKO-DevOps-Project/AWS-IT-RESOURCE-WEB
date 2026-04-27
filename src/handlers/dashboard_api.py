@@ -1408,7 +1408,7 @@ def get_role_request_options(event: Dict[str, Any]) -> Dict[str, Any]:
 
     # Target service options
     target_services = [
-        {'value': 'ec2', 'label': 'EC2 (SSM 접속 포함)'},
+        {'value': 'ec2', 'label': 'EC2'},
         {'value': 'rds', 'label': 'RDS'},
         {'value': 'lambda', 'label': 'Lambda'},
         {'value': 's3', 'label': 'S3'},

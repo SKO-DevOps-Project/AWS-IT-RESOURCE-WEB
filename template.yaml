@@ -51,6 +51,16 @@ Parameters:
     Type: String
     Description: SKONS authentication API URL
 
+  BastionInstanceId:
+    Type: String
+    Default: "i-01af38d47bfa846a6"
+    Description: SSM 접속 대상 bastion EC2 Instance ID (모든 role에 기본 부여)
+
+  BastionRegion:
+    Type: String
+    Default: "ap-northeast-2"
+    Description: Bastion EC2 인스턴스가 있는 region
+
 Globals:
   Function:
     Runtime: python3.11
@@ -65,6 +75,8 @@ Globals:
         ADMIN_USER_IDS: !Ref AdminUserIds
         COMPANY_IP_RANGE: !Ref CompanyIpRange
         DYNAMODB_TABLE: !Ref RoleRequestsTable
+        BASTION_INSTANCE_ID: !Ref BastionInstanceId
+        BASTION_REGION: !Ref BastionRegion
     Tags:
       Env: infra
       Service: infra

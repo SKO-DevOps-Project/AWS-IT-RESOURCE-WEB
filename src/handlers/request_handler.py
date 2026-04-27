@@ -143,7 +143,7 @@ def create_request_dialog(
             "default": "all",
             "options": [
                 {"text": "전체", "value": "all"},
-                {"text": "EC2 (SSM 접속 포함)", "value": "ec2"},
+                {"text": "EC2", "value": "ec2"},
                 {"text": "RDS", "value": "rds"},
                 {"text": "Lambda", "value": "lambda"},
                 {"text": "S3", "value": "s3"},
@@ -156,7 +156,7 @@ def create_request_dialog(
                 {"text": "ECR (컨테이너 레지스트리)", "value": "ecr"},
                 {"text": "EKS (쿠버네티스)", "value": "eks"},
             ],
-            "help_text": "권한이 필요한 AWS 서비스를 선택하세요",
+            "help_text": "권한이 필요한 AWS 서비스를 선택하세요. (Bastion SSM 접속은 모든 요청에 기본 포함)",
         },
         {
             "display_name": "Parameter Store 권한",
