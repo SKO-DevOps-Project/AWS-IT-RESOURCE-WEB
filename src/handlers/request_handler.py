@@ -155,6 +155,7 @@ def create_request_dialog(
                 {"text": "Billing (비용 조회)", "value": "billing"},
                 {"text": "ECR (컨테이너 레지스트리)", "value": "ecr"},
                 {"text": "EKS (쿠버네티스)", "value": "eks"},
+                {"text": "Bedrock (생성형 AI)", "value": "bedrock"},
             ],
             "help_text": "권한이 필요한 AWS 서비스를 선택하세요. (Bastion SSM 접속은 모든 요청에 기본 포함)",
         },

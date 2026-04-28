@@ -587,6 +587,55 @@ SERVICE_PERMISSIONS = {
             "eks:DeleteAccessEntry",
         ],
     },
+    "bedrock": {
+        "read": [
+            # 모델 카탈로그 조회
+            "bedrock:ListFoundationModels", "bedrock:GetFoundationModel",
+            "bedrock:ListCustomModels", "bedrock:GetCustomModel",
+            # Agent / KB / Guardrail 조회
+            "bedrock:ListAgents", "bedrock:GetAgent",
+            "bedrock:ListAgentAliases", "bedrock:GetAgentAlias",
+            "bedrock:ListKnowledgeBases", "bedrock:GetKnowledgeBase",
+            "bedrock:ListDataSources", "bedrock:GetDataSource",
+            "bedrock:ListGuardrails", "bedrock:GetGuardrail",
+            "bedrock:ListTagsForResource",
+            "bedrock:GetModelInvocationLoggingConfiguration",
+            # 모델 호출 (사용량 과금) - InvokeModel은 모델 ARN 기준이라 ResourceTag 적용 불가
+            "bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream",
+            "bedrock:Retrieve", "bedrock:RetrieveAndGenerate", "bedrock:InvokeAgent",
+            # 모니터링/로그
+            "cloudwatch:Describe*", "cloudwatch:Get*", "cloudwatch:List*",
+            "logs:DescribeLogGroups", "logs:GetLogEvents", "logs:FilterLogEvents",
+            # 연관 서비스 read (KB 데이터 소스 = S3, Action Group = Lambda)
+            "s3:GetObject", "s3:GetBucketLocation", "s3:ListBucket",
+            "lambda:GetFunction", "lambda:ListFunctions",
+        ],
+        "update": [
+            "bedrock:UpdateAgent", "bedrock:PrepareAgent",
+            "bedrock:UpdateAgentAlias",
+            "bedrock:UpdateKnowledgeBase", "bedrock:UpdateDataSource",
+            "bedrock:UpdateGuardrail",
+            "bedrock:StartIngestionJob", "bedrock:StopIngestionJob",
+            "bedrock:TagResource", "bedrock:UntagResource",
+            "bedrock:PutModelInvocationLoggingConfiguration",
+        ],
+        "create": [
+            "bedrock:CreateAgent", "bedrock:CreateAgentAlias",
+            "bedrock:CreateKnowledgeBase", "bedrock:CreateDataSource",
+            "bedrock:CreateGuardrail", "bedrock:CreateGuardrailVersion",
+            "iam:CreateServiceLinkedRole",
+        ],
+        "delete": [
+            "bedrock:DeleteAgent", "bedrock:DeleteAgentAlias",
+            "bedrock:DeleteKnowledgeBase", "bedrock:DeleteDataSource",
+            "bedrock:DeleteGuardrail",
+            "bedrock:DeleteCustomModel",
+            # 고비용 액션 - delete 카테고리에 두어 full에서만 부여됨
+            "bedrock:CreateModelCustomizationJob",
+            "bedrock:CreateProvisionedModelThroughput",
+            "bedrock:DeleteProvisionedModelThroughput",
+        ],
+    },
 }
 
 
@@ -877,8 +926,14 @@ class RoleManager:
         target_services = getattr(request, 'target_services', ['all'])
         
         # Determine which services to include
+        # 'all'은 일반 서비스만 포함하고, bedrock 같이 'all'에서 의도적으로 제외된 서비스는
+        # 사용자가 명시적으로 추가 선택해야만 부여 (비용 통제)
         if 'all' in target_services:
             services_to_include = ['ec2', 'rds', 'lambda', 's3', 'elasticbeanstalk', 'dynamodb', 'elasticloadbalancing', 'route53', 'amplify', 'billing', 'ecr', 'eks']
+            # 'all' 외에 명시 선택된 서비스(예: bedrock)도 추가
+            for svc in target_services:
+                if svc != 'all' and svc in SERVICE_PERMISSIONS and svc not in services_to_include:
+                    services_to_include.append(svc)
         else:
             services_to_include = target_services
         
@@ -1068,6 +1123,7 @@ class RoleManager:
                 "autoscaling:CreateOrUpdateTags",
                 "elasticbeanstalk:AddTags",
                 "eks:TagResource",
+                "bedrock:TagResource",
             ]
             statements.append({
                 "Sid": "CreateWithTags",
@@ -1102,6 +1158,17 @@ class RoleManager:
                     "Action": "iam:PassRole",
                     "Resource": "*",
                     "Condition": {"StringEquals": {"iam:PassedToService": "eks.amazonaws.com"}}
+                })
+
+        # Bedrock + create 이상일 때 PassRole Statement (Agent/KB execution role)
+        if 'bedrock' in services_to_include:
+            if permission_type in ['read_update_create', 'full']:
+                statements.append({
+                    "Sid": "PassRoleForBedrock",
+                    "Effect": "Allow",
+                    "Action": "iam:PassRole",
+                    "Resource": "*",
+                    "Condition": {"StringEquals": {"iam:PassedToService": "bedrock.amazonaws.com"}}
                 })
 
         # Parameter Store 권한 (권한 타입에 따라 범위 결정)

@@ -48,6 +48,7 @@ class TargetService(Enum):
     BILLING = "billing"
     ECR = "ecr"
     EKS = "eks"
+    BEDROCK = "bedrock"
     ALL = "all"
 
 

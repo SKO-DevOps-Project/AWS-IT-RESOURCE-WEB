@@ -421,6 +421,10 @@ def create_approval_message(
         "elasticloadbalancing": "ELB",
         "route53": "Route53",
         "amplify": "Amplify",
+        "billing": "Billing",
+        "ecr": "ECR",
+        "eks": "EKS",
+        "bedrock": "Bedrock",
     }
     
     perm_display = permission_type_names.get(permission_type, permission_type)

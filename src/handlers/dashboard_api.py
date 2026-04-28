@@ -1420,6 +1420,7 @@ def get_role_request_options(event: Dict[str, Any]) -> Dict[str, Any]:
         {'value': 'billing', 'label': 'Billing (비용 조회)'},
         {'value': 'ecr', 'label': 'ECR (컨테이너 레지스트리)'},
         {'value': 'eks', 'label': 'EKS (쿠버네티스)'},
+        {'value': 'bedrock', 'label': 'Bedrock (생성형 AI)'},
     ]
 
     # Environment options
