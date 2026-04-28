@@ -1835,6 +1835,7 @@ def create_admin_role_grant(event: Dict[str, Any], body: Dict[str, Any]) -> Dict
                     source="관리자 즉시 부여",
                     include_parameter_store=include_parameter_store,
                     include_secrets_manager=include_secrets_manager,
+                    max_session_duration=role_info.get('max_session_duration', 3600),
                 )
             except Exception as e:
                 print(f"[create_admin_role_grant] Failed to send DM: {e}")
@@ -2030,6 +2031,7 @@ def approve_ticket(event: Dict[str, Any], request_id: str) -> Dict[str, Any]:
                     source="웹",
                     include_parameter_store=ticket.get('include_parameter_store', False),
                     include_secrets_manager=ticket.get('include_secrets_manager', False),
+                    max_session_duration=role_info.get('max_session_duration', 3600),
                 )
             except Exception as e:
                 print(f"[approve_ticket] Failed to send notifications: {e}")

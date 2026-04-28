@@ -598,6 +598,7 @@ class RequestHandler:
                     source="관리자 즉시 부여",
                     include_parameter_store=request.include_parameter_store,
                     include_secrets_manager=request.include_secrets_manager,
+                    max_session_duration=role_info.get('max_session_duration', 3600),
                 )
 
             return {}

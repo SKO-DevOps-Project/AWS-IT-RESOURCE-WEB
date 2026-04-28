@@ -743,6 +743,7 @@ class RoleManager:
                 "role_arn": role_arn,
                 "policy_arn": inline_name,
                 "role_name": role_name,
+                "max_session_duration": max_session_duration,
             }
         else:
             # Too large for inline → split into managed policies (6,144 bytes each)
@@ -771,8 +772,9 @@ class RoleManager:
                 "role_arn": role_arn,
                 "policy_arn": ",".join(managed_arns),
                 "role_name": role_name,
+                "max_session_duration": max_session_duration,
             }
-    
+
     def delete_dynamic_role(self, role_arn: str, policy_arn: str) -> None:
         """
         Delete dynamic role and all attached policies (inline + managed).

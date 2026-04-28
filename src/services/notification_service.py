@@ -138,14 +138,19 @@ def _build_role_created_dm(
     perm_display: str,
     target_display: str,
     source: str = "",
+    max_session_duration: int = 3600,
 ) -> str:
     role_name = role_arn.split("/")[-1]
     source_tag = f" ({source})" if source else ""
+    hours = max_session_duration // 3600
+    minutes = (max_session_duration % 3600) // 60
+    duration_label = f"{hours}h" + (f" {minutes}m" if minutes else "")
 
     return (
         f"✅ AWS Role이 생성되었습니다!{source_tag}\n\n"
         f"**요청 ID:** {request_id}\n"
-        f"**Role ARN:** {role_arn}\n\n"
+        f"**Role ARN:** {role_arn}\n"
+        f"**세션 유효 시간:** 최대 {duration_label} (요청 기간만큼)\n\n"
         f"---\n"
         f"## 🖥️ Console에서 사용하기 (Switch Role)\n"
         f"1. AWS Console 우측 상단 → Switch Role\n"
@@ -153,10 +158,13 @@ def _build_role_created_dm(
         f"3. Role: `{role_name}`\n\n"
         f"---\n"
         f"## 💻 CLI에서 사용하기\n\n"
+        f"> ⚠️ `--duration-seconds {max_session_duration}` 옵션이 반드시 포함되어야 요청 기간 동안 끊기지 않습니다. 빠지면 default 1시간 후 ExpiredToken 에러 발생.\n\n"
         f"**방법 1: 환경변수 설정 - Mac/Linux**\n"
         f"```bash\n"
-        f"# 1. assume-role 실행\n"
-        f"CREDS=$(aws sts assume-role --role-arn {role_arn} --role-session-name {iam_user_name}-session --query 'Credentials' --output json)\n\n"
+        f"# (이전 임시 credential 잔존 방지)\n"
+        f"unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN\n\n"
+        f"# 1. assume-role 실행 (--duration-seconds 명시)\n"
+        f"CREDS=$(aws sts assume-role --role-arn {role_arn} --role-session-name {iam_user_name}-session --duration-seconds {max_session_duration} --query 'Credentials' --output json)\n\n"
         f"# 2. 환경변수 설정\n"
         f"export AWS_ACCESS_KEY_ID=$(echo $CREDS | jq -r '.AccessKeyId')\n"
         f"export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | jq -r '.SecretAccessKey')\n"
@@ -166,8 +174,12 @@ def _build_role_created_dm(
         f"```\n\n"
         f"**방법 2: 환경변수 설정 - Windows (PowerShell)**\n"
         f"```powershell\n"
-        f"# 1. assume-role 실행\n"
-        f'$creds = (aws sts assume-role --role-arn {role_arn} --role-session-name {iam_user_name}-session --query "Credentials" --output json) | ConvertFrom-Json\n\n'
+        f"# (이전 임시 credential 잔존 방지)\n"
+        f"Remove-Item Env:AWS_ACCESS_KEY_ID -ErrorAction SilentlyContinue\n"
+        f"Remove-Item Env:AWS_SECRET_ACCESS_KEY -ErrorAction SilentlyContinue\n"
+        f"Remove-Item Env:AWS_SESSION_TOKEN -ErrorAction SilentlyContinue\n\n"
+        f"# 1. assume-role 실행 (--duration-seconds 명시)\n"
+        f'$creds = (aws sts assume-role --role-arn {role_arn} --role-session-name {iam_user_name}-session --duration-seconds {max_session_duration} --query "Credentials" --output json) | ConvertFrom-Json\n\n'
         f"# 2. 환경변수 설정\n"
         f"$env:AWS_ACCESS_KEY_ID = $creds.AccessKeyId\n"
         f"$env:AWS_SECRET_ACCESS_KEY = $creds.SecretAccessKey\n"
@@ -332,6 +344,7 @@ def notify_approved(
     source: str = "",
     include_parameter_store: bool = False,
     include_secrets_manager: bool = False,
+    max_session_duration: int = 3600,
 ):
     """
     Send approval notifications.
@@ -409,6 +422,7 @@ def notify_approved(
                     perm_display=perm_display,
                     target_display=target_display,
                     source=source,
+                    max_session_duration=max_session_duration,
                 )
             _smart_send_dm(mattermost, requester_mattermost_id, dm_msg)
 
@@ -550,6 +564,7 @@ def notify_role_created(
     source: str = "",
     include_parameter_store: bool = False,
     include_secrets_manager: bool = False,
+    max_session_duration: int = 3600,
 ):
     """
     Send role-created DM (used by scheduled role creation & master request).
@@ -568,6 +583,7 @@ def notify_role_created(
         perm_display=perm_display,
         target_display=target_display,
         source=source,
+        max_session_duration=max_session_duration,
     )
 
     _smart_send_dm(mattermost, requester_mattermost_id, dm_msg)
